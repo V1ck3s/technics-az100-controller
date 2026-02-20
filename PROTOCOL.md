@@ -708,6 +708,92 @@ SET: 05 5A 02 00 29 00
 
 ---
 
+## Implementation dans technics.py
+
+### Usage
+
+```bash
+uv run technics.py [-a MAC] [-c CANAL] [--raw] <commande> [args]
+```
+
+Sans argument apres la commande = GET (lecture). Avec argument = SET (ecriture).
+`--raw` produit une sortie JSON pour scripting.
+
+### Commandes disponibles
+
+| Commande CLI | cmd_id | Description | GET | SET |
+|-------------|--------|-------------|-----|-----|
+| `status` | 240 | Tous les parametres (batch) | x | |
+| `battery` | 3074 | Batterie ecouteurs | x | |
+| `codec` | 18 | Info codec actuel | x | |
+| `color` | 2 | Couleur appareil | x | |
+| `anc [nc\|off\|ambient]` | 10/11 | Noise Canceling | x | x |
+| `anc-level [0-40]` | 56/57 | Ajustement NC fin (dB) | x | x |
+| `adaptive-anc [on\|off]` | 103/104 | ANC adaptatif | x | x |
+| `ambient-mode [transparent\|attention]` | 33/34 | Mode ambiant (+ `--music`) | x | x |
+| `outside-toggle [off,nc,ambient]` | 21/22 | Config bouton physique (bitmask) | x | x |
+| `eq [off\|bass\|clear-voice\|...]` | 12/13 | Egaliseur | x | x |
+| `spatial [on\|off]` | 99/100 | Audio spatial (+ `--head-tracking`) | x | x |
+| `multipoint [off\|on\|triple]` | 50/51 | Multipoint Bluetooth | x | x |
+| `switch-playing [on\|off]` | 85/86 | Bascule pendant la lecture | x | x |
+| `ringtone-talking [on\|off]` | 87/88 | Sonnerie pendant appel | x | x |
+| `auto-power-off [on\|off]` | 6/7 | Arret auto (+ `--minutes`) | x | x |
+| `led [on\|off]` | 19/20 | LED clignotante | x | x |
+| `wearing [on\|off]` | 77/78 | Detection de port (+ `--music/--touch/--replay`) | x | x |
+| `assistant [google\|alexa\|off]` | 8/9 | Assistant vocal | x | x |
+| `le-audio [on\|off]` | 89/90 | LE Audio | x | x |
+| `noise-reduction [normal\|high]` | 52/53 | Reduction bruit appel | x | x |
+| `buffer [auto\|music\|video]` | 58/59 | Buffer audio/video | x | x |
+| `safe-volume [valeur]` | 92/93 | Volume max securise | x | x |
+| `language [ja\|en\|de\|fr\|...]` | 4/5 | Langue des annonces | x | x |
+| `jmv [on\|off\|start]` | 45/46/47 | Just My Voice | x | x |
+| `vp-outside [tone\|voice]` | 69 | Annonce changement ANC | | x |
+| `vp-connected [0-7]` | 70 | Annonce de connexion | | x |
+| `vp-volume [volume]` | 68 | Volume annonces vocales | | x |
+| `a2dp [sbc\|aac\|aptx\|ldac\|...]` | 16/17 | Preference codec Bluetooth | x | x |
+| `tws-battery` | 3286 | Batterie TWS (ecouteurs separes) | x | |
+| `connected-devices` | 73 | Appareils connectes | x | |
+| `firmware-info` | 769/7688 | Infos firmware (SDK + build) | x | |
+| `find-me` | 32 | Localiser (`--blink/--ring/--target`) | | x |
+| `power-off` | 66 | Eteindre les ecouteurs | | x |
+
+### Architecture du script
+
+- **Registre generique** : 14 commandes simples (1 octet GET/SET) via `CmdDef` + `generic_get/set`
+- **Fonctions specialisees** : 21 commandes complexes (multi-champs, bitmask, cmd systeme)
+- **Batch** : `status` utilise la commande 240 pour recuperer ~20 parametres en une requete
+- **CLI** : argparse avec 34 sous-commandes, aide en francais
+
+### Commandes non implementees (debug/interne)
+
+Ces commandes du protocole RACE ne sont pas exposees dans `technics.py` car elles relevent du diagnostic, de la fabrication ou de fonctionnalites avancees rarement utiles :
+
+| cmd_id | Fonction | Raison |
+|--------|----------|--------|
+| 0/1 | Model ID | L'appareil est deja connu |
+| 3 | Color SET | Couleur physique, non modifiable logiciellement |
+| 23-27 | Key Enable / Keymap | Configuration avancee des boutons |
+| 35/36 | Wearing Detection v1 | Remplace par v3 (cmd 77/78) |
+| 37-40 | Language/VTrigger Revision | Revision firmware des langues |
+| 41-43 | Erase/Log Output | Gestion de logs internes |
+| 44 | Sensor Info | Donnees capteurs brutes |
+| 48 | Fix Outside Ctrl | Commande interne |
+| 54/55 | BT Info / Quality Info | Diagnostic Bluetooth |
+| 65 | Factory Reset | Dangereux, non expose volontairement |
+| 67 | VP Settings GET | Lecture seule des VP, peu utile |
+| 71/72 | VP Play / Fix VP | Commandes internes |
+| 74/75 | Demo Mode | Mode demonstration usine |
+| 76 | Usage Time | Compteur d'utilisation |
+| 79-82 | Wearing Test | Test de calibration capteur |
+| 83/84 | Charge Error | Diagnostic de charge |
+| 91 | Current Status | Etat interne non documente |
+| 94/95 | Board/Mesh Info | Info carte/mesh |
+| 97 | Cradle Version | Version firmware boitier |
+| 98 | Usage Guide | Non documente |
+| 101/102 | Dolby | Dolby non supporte sur AZ100 |
+
+---
+
 ## Notes d'implementation
 
 1. **Byte order** : TOUT est little-endian (length, cmd_id). C'est la cause principale d'echec si ignore.
