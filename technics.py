@@ -153,11 +153,15 @@ def build_race_packet(cmd_id: int, payload: bytes = b"") -> bytes:
 
 
 def parse_race_response(data: bytes) -> tuple[int, int, bytes]:
-    """Parse une reponse RACE. Retourne (cmd_id, status, payload)."""
+    """Parse une reponse RACE. Retourne (cmd_id, status, payload).
+
+    Accepte les reponses (0x5B) et les indications (0x5D), les deux
+    contenant des donnees valides du peripherique.
+    """
     if len(data) < 6:
         raise ValueError(f"Reponse trop courte: {len(data)} octets")
     head, ptype, length, cmd_id = struct.unpack("<BBHH", data[:6])
-    if ptype != 0x5B:
+    if ptype not in (0x5B, 0x5D):
         raise ValueError(f"Type de reponse inattendu: 0x{ptype:02X}")
     payload = data[6:]
     status = payload[0] if payload else -1
@@ -177,30 +181,34 @@ def send_recv(sock: socket.socket, data: bytes, timeout: float = 3) -> bytes:
     """Envoie des donnees et attend la reponse.
 
     Parse le header RACE pour determiner la taille attendue et retourner
-    des que le paquet complet est recu, sans attendre le timeout.
+    des que le paquet complet est recu (reponse 0x5B ou indication 0x5D).
     """
     sock.send(data)
     sock.settimeout(timeout)
-    response = bytearray()
+    buf = bytearray()
     start = time.time()
     while time.time() - start < timeout:
         try:
             chunk = sock.recv(1024)
-            if chunk:
-                response.extend(chunk)
-                if len(response) >= 4:
-                    expected = 4 + struct.unpack("<H", response[2:4])[0]
-                    if len(response) >= expected:
-                        break
-                    sock.settimeout(0.2)
-            else:
+            if not chunk:
                 break
+            buf.extend(chunk)
         except socket.timeout:
-            if response:
+            if buf:
                 break
-    if not response:
+            continue
+        while len(buf) >= 4:
+            pkt_len = 4 + struct.unpack("<H", buf[2:4])[0]
+            if len(buf) < pkt_len:
+                sock.settimeout(0.2)
+                break
+            pkt = bytes(buf[:pkt_len])
+            del buf[:pkt_len]
+            if pkt[1] in (0x5B, 0x5D):
+                return pkt
+    if not buf:
         raise TimeoutError("Pas de reponse des ecouteurs")
-    return bytes(response)
+    return bytes(buf)
 
 # ---------------------------------------------------------------------------
 #  Helpers generiques
@@ -445,11 +453,14 @@ def cmd_find_me(sock: socket.socket, blink: bool = False,
 def cmd_battery_get(sock: socket.socket) -> dict:
     results = {}
     for role in (0, 1):  # 0=agent, 1=partner
-        pkt = build_race_packet(3074)
-        resp = send_recv(sock, pkt)
-        _, status, data = parse_race_response(resp)
-        if status == 0 and data:
-            results["agent" if data[0] == 0 else "partner"] = data[1] if len(data) > 1 else -1
+        try:
+            pkt = build_race_packet(3074)
+            resp = send_recv(sock, pkt)
+            _, status, data = parse_race_response(resp)
+            if status == 0 and data:
+                results["agent" if data[0] == 0 else "partner"] = data[1] if len(data) > 1 else -1
+        except (TimeoutError, ValueError):
+            continue
     return results
 
 
@@ -457,10 +468,13 @@ def cmd_battery_get(sock: socket.socket) -> dict:
 
 def cmd_tws_battery_get(sock: socket.socket) -> dict:
     pkt = build_race_packet(3286)
-    resp = send_recv(sock, pkt)
+    try:
+        resp = send_recv(sock, pkt)
+    except TimeoutError:
+        return {}
     _, status, data = parse_race_response(resp)
     if status != 0:
-        raise RuntimeError(f"TWS Battery: status={status}")
+        return {}
     results = {}
     if data:
         role = "agent" if data[0] == 0 else "partner"
