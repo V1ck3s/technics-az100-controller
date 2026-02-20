@@ -174,7 +174,11 @@ def bt_connect(address: str = MAC_ADDRESS, channel: int = RFCOMM_CHANNEL) -> soc
 
 
 def send_recv(sock: socket.socket, data: bytes, timeout: float = 3) -> bytes:
-    """Envoie des donnees et attend la reponse."""
+    """Envoie des donnees et attend la reponse.
+
+    Parse le header RACE pour determiner la taille attendue et retourner
+    des que le paquet complet est recu, sans attendre le timeout.
+    """
     sock.send(data)
     sock.settimeout(timeout)
     response = bytearray()
@@ -184,11 +188,16 @@ def send_recv(sock: socket.socket, data: bytes, timeout: float = 3) -> bytes:
             chunk = sock.recv(1024)
             if chunk:
                 response.extend(chunk)
-                time.sleep(0.1)
+                if len(response) >= 4:
+                    expected = 4 + struct.unpack("<H", response[2:4])[0]
+                    if len(response) >= expected:
+                        break
+                    sock.settimeout(0.2)
             else:
                 break
         except socket.timeout:
-            break
+            if response:
+                break
     if not response:
         raise TimeoutError("Pas de reponse des ecouteurs")
     return bytes(response)

@@ -757,12 +757,55 @@ Sans argument apres la commande = GET (lecture). Avec argument = SET (ecriture).
 | `find-me` | 32 | Localiser (`--blink/--ring/--target`) | | x |
 | `power-off` | 66 | Eteindre les ecouteurs | | x |
 
-### Architecture du script
+### Architecture
 
 - **Registre generique** : 14 commandes simples (1 octet GET/SET) via `CmdDef` + `generic_get/set`
 - **Fonctions specialisees** : 21 commandes complexes (multi-champs, bitmask, cmd systeme)
 - **Batch** : `status` utilise la commande 240 pour recuperer ~20 parametres en une requete
 - **CLI** : argparse avec 34 sous-commandes, aide en francais
+- **GUI** : interface graphique customtkinter (voir section dediee)
+
+### Interface graphique (technics_gui.py)
+
+```bash
+uv run technics_gui.py
+```
+
+Interface graphique customtkinter (theme sombre, 900x650) exposant toutes les fonctionnalites de `technics.py`. Dependance PEP 723 : `customtkinter>=5.2`.
+
+**Architecture** :
+
+```
+App (CTk) : header, sidebar (8 boutons), content, status bar
+  |-- BTWorker : thread daemon + threading.Lock pour ops RFCOMM
+  |-- 8 pages (CTkScrollableFrame) :
+  |     Batterie, ANC, Audio, Connexion, Reglages, Voix, Infos, Outils
+  |-- Widgets reutilisables : Section, ToggleRow
+```
+
+**Modele de threading** : Toutes les operations Bluetooth tournent dans un thread daemon via `BTWorker`. Les callbacks UI utilisent `app.after(0, callback)` pour la thread-safety tkinter. Un `threading.Lock` serialise les acces au socket RFCOMM. Chaque page utilise un flag `_loading` pendant le refresh pour empecher les callbacks de widgets de declencher des commandes BT.
+
+**Pages** :
+
+| Page | Fonctionnalites | Commandes utilisees |
+|------|-----------------|---------------------|
+| Batterie | 4 barres (agent/partner/boitier/TWS), couleur dynamique | `cmd_battery_get`, `cmd_cradle_battery_get`, `cmd_tws_battery_get` |
+| ANC | Mode, niveau NC (slider), adaptatif, ambiant, bouton physique | `cmd_anc_get/set`, `cmd_anc_level_get/set`, `cmd_ambient_mode_get/set`, `cmd_outside_toggle_get/set`, generic adaptive-anc |
+| Audio | EQ (9 presets), spatial, head tracking, codec A2DP, buffer, codec actuel | `cmd_spatial_get/set`, `cmd_codec_get`, generic eq/a2dp/buffer |
+| Connexion | Multipoint, LE Audio, bascule lecture, liste appareils | `cmd_connected_devices_get`, generic multipoint/le-audio/switch-playing |
+| Reglages | LED, detection port (4 sous-options), arret auto, volume securise, langue, sonnerie | `cmd_wearing_get/set`, `cmd_auto_power_off_get/set`, generic led/safe-volume/language/ringtone-talking |
+| Voix | Assistant vocal, reduction bruit, annonces ANC/connexion, volume annonces, JMV | `cmd_vp_outside_set`, `cmd_vp_connected_set`, `cmd_vp_volume_set`, `cmd_jmv_start`, generic assistant/noise-reduction/jmv |
+| Infos | Firmware (SDK, SoC, build), couleur, status JSON complet | `cmd_firmware_info_get`, `cmd_color_get`, `cmd_status_batch` |
+| Outils | Localiser (blink/ring/cible), extinction avec confirmation | `cmd_find_me`, `cmd_power_off` |
+
+**Flux utilisateur** :
+
+1. Lancement → fenetre avec sidebar + page Batterie
+2. Clic "Connecter" → thread BT → indicateur vert si OK
+3. Auto-chargement `cmd_status_batch()` pour remplir toutes les pages
+4. Navigation sidebar → `page.refresh()` charge les donnees specifiques
+5. Changement de reglage → thread BT SET → feedback dans la status bar
+6. "Deconnecter" → ferme le socket, remet l'indicateur rouge
 
 ### Commandes non implementees (debug/interne)
 
@@ -808,7 +851,7 @@ Ces commandes du protocole RACE ne sont pas exposees dans `technics.py` car elle
 
 6. **BLE non disponible** : Sur Windows, quand les ecouteurs sont connectes en Bluetooth Classic (pour l'audio), le GATT BLE n'est pas accessible. Utiliser RFCOMM uniquement.
 
-7. **Execution Windows** : Le script doit tourner cote Windows (pas WSL) car le Bluetooth est gere par Windows. Utiliser `uv run` pour l'execution sans venv.
+7. **Execution Windows** : Les scripts doivent tourner cote Windows (pas WSL) car le Bluetooth est gere par Windows. Utiliser `uv run` pour l'execution sans venv. Depuis WSL, les fichiers sont accessibles via `\\wsl.localhost\Debian\...`.
 
 ---
 
