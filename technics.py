@@ -448,39 +448,63 @@ def cmd_find_me(sock: socket.socket, blink: bool = False,
     return {"blink": blink, "ring": ring, "target": target, "status": "ok"}
 
 
-# --- Battery (cmd systeme 3074 = 0x0C02) ---
+# --- Battery ---
+
+def _parse_system_battery(resp: bytes) -> tuple[str, int]:
+    """Parse une reponse batterie systeme (cmd 3074/3286).
+
+    Les commandes systeme n'ont PAS de status byte dans le payload.
+    parse_race_response traite le 1er octet comme status, donc:
+      - 'status' = agent_or_client (0=agent, 1=partner)
+      - 'rest'   = [battery_percent]
+    """
+    _, role_byte, rest = parse_race_response(resp)
+    role = "agent" if role_byte == 0 else "partner"
+    level = rest[0] if rest else -1
+    return role, level
+
 
 def cmd_battery_get(sock: socket.socket) -> dict:
+    """Recupere toutes les infos batterie disponibles.
+
+    Utilise cmd 64 (Cradle Battery) comme source fiable,
+    puis tente les commandes systeme 3074/3286 pour les ecouteurs.
+    """
     results = {}
-    for role in (0, 1):  # 0=agent, 1=partner
-        try:
-            pkt = build_race_packet(3074)
-            resp = send_recv(sock, pkt)
-            _, status, data = parse_race_response(resp)
-            if status == 0 and data:
-                results["agent" if data[0] == 0 else "partner"] = data[1] if len(data) > 1 else -1
-        except (TimeoutError, ValueError):
-            continue
+    # Cradle battery (cmd 64) - fonctionne sur EAH-AZ100
+    try:
+        data = race_get(sock, 64)
+        if data:
+            results["cradle"] = data[0]
+    except (TimeoutError, RuntimeError):
+        pass
+    # Earbuds battery (cmd systeme 3074) - peut ne pas repondre
+    try:
+        resp = send_recv(sock, build_race_packet(3074))
+        role, level = _parse_system_battery(resp)
+        if level >= 0:
+            results[role] = level
+    except (TimeoutError, ValueError):
+        pass
+    # TWS battery (cmd systeme 3286) - peut ne pas repondre
+    try:
+        resp = send_recv(sock, build_race_packet(3286))
+        role, level = _parse_system_battery(resp)
+        if level >= 0:
+            results[f"tws_{role}"] = level
+    except (TimeoutError, ValueError):
+        pass
     return results
 
-
-# --- TWS Battery (cmd systeme 3286 = 0x0CD6) ---
 
 def cmd_tws_battery_get(sock: socket.socket) -> dict:
-    pkt = build_race_packet(3286)
+    """TWS battery (cmd systeme 3286) - utilise par la GUI separement."""
     try:
-        resp = send_recv(sock, pkt)
-    except TimeoutError:
+        resp = send_recv(sock, build_race_packet(3286))
+        role, level = _parse_system_battery(resp)
+        return {role: level}
+    except (TimeoutError, ValueError):
         return {}
-    _, status, data = parse_race_response(resp)
-    if status != 0:
-        return {}
-    results = {}
-    if data:
-        role = "agent" if data[0] == 0 else "partner"
-        level = data[1] if len(data) > 1 else -1
-        results[role] = level
-    return results
 
 
 # --- Connected Devices (cmd 73) - GET only ---
@@ -687,7 +711,11 @@ def cmd_status_batch(sock: socket.socket) -> dict:
         offset += 3
         chunk = data[offset:offset + dlen]
         offset += dlen
-        result[cid] = chunk
+        # Chaque commande dans le batch inclut un status byte en tete
+        if chunk:
+            result[cid] = chunk[1:]
+        else:
+            result[cid] = chunk
 
     return _parse_batch_result(result)
 
