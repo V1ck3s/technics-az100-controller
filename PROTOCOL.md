@@ -225,12 +225,16 @@ Ces commandes sont specifiques a Panasonic/Technics. Le cmd_id est directement l
 
 ### Commandes systeme RACE (non Panasonic)
 
-| cmd_id | Hex | Fonction | Payload reponse |
-|--------|-----|----------|-----------------|
-| 769 | 0x0301 | SDK Version | sdk_version_str |
-| 3074 | 0x0C02 | Battery Level | agent_or_client, battery_percent |
-| 3286 | 0x0CD6 | TWS Battery | agent_or_client, battery_percent |
-| 7688 | 0x1E08 | Build Version Info | soc_name, sdk_name, build_date |
+| cmd_id | Hex | Fonction | Notes |
+|--------|-----|----------|-------|
+| 769 | 0x0301 | SDK Version | Reponse 0x5B : sdk_version_str |
+| 2304 | 0x0900 | Airoha PEQ SET | SET EQ via coefficients PEQ (voir section dediee) |
+| 2305 | 0x0901 | Airoha PEQ GET | GET EQ via PEQ (voir section dediee) |
+| 3074 | 0x0C02 | Battery Level | **Ne repond pas sur AZ100** - utiliser cmd 3286 |
+| 3286 | 0x0CD6 | TWS Battery | Requiert payload {0}, reponse en indication 0x5D (voir section dediee) |
+| 3328 | 0x0D00 | GetAvaDst | Decouvre les destinations relay (peers TWS) |
+| 3329 | 0x0D01 | RelayPassToDst | Relay une commande RACE vers le partner (voir section dediee) |
+| 7688 | 0x1E08 | Build Version Info | Reponse 0x5B : soc_name, sdk_name, build_date |
 
 ---
 
@@ -277,11 +281,15 @@ SET: 05 5A 04 00 22 00 [ambient_mode] [music_mode]
 | 0 | Play |
 | 1 | Stop |
 
-### Sound Mode (EQ) - cmd 12/13
+### Sound Mode (EQ) - cmd 12/13 (OBSOLETE sur AZ100)
+
+> **ATTENTION** : Les commandes Panasonic 12/13 ne fonctionnent PAS correctement sur AZ100.
+> Le GET retourne toujours 0 ("Unset") quelle que soit la valeur reelle.
+> Utiliser les commandes Airoha PEQ (0x0901/0x0900) a la place. Voir section dediee ci-dessous.
 
 ```
-GET: 05 5A 02 00 0C 00
-SET: 05 5A 03 00 0D 00 [sound_mode]
+GET: 05 5A 02 00 0C 00   (retourne toujours 0 sur AZ100)
+SET: 05 5A 03 00 0D 00 [sound_mode]  (ne prend pas effet sur AZ100)
 ```
 
 | Valeur | Mode |
@@ -466,19 +474,100 @@ SET: 05 5A 03 00 3B 00 [buffer]
 | 1 | Music |
 | 2 | Video |
 
-### Battery (systeme RACE) - cmd_id 3074 (0x0C02)
+### Battery (systeme RACE)
 
-```
-GET: 05 5A 02 00 02 0C
-Reponse: 05 5B LL LL 02 0C [agent_or_client] [battery_percent]
-```
+> **ATTENTION** : La commande cmd 3074 (0x0C02) ne repond pas sur AZ100.
+> Utiliser cmd 3286 avec payload pour les ecouteurs et cmd 64 pour le boitier.
 
-### Cradle Battery - cmd 64
+#### Cradle Battery - cmd 64
+
+Commande Panasonic standard, fonctionne correctement.
 
 ```
 GET: 05 5A 02 00 40 00
 Reponse: 05 5B LL LL 40 00 [status] [battery_level]
 ```
+
+| Champ | Description |
+|-------|-------------|
+| status | 0=OK |
+| battery_level | Pourcentage (0-100) |
+
+#### Agent Battery - cmd 3286 (0x0CD6, TWS_GET_BATTERY)
+
+Necessite un payload `{0}` (AGENT=0). La reponse arrive en **indication 0x5D** (pas en reponse 0x5B).
+
+```
+Envoi:  05 5A 03 00 D6 0C 00          (cmd 3286, payload=0x00)
+ACK:    05 5B 05 00 D6 0C 00 00 XX    (0x5B, ignorer)
+Indic:  05 5D 05 00 D6 0C [status] [agent_or_client] [battery_percent]
+```
+
+| Champ | Description |
+|-------|-------------|
+| payload envoi | 0=AGENT, 1=PARTNER (mais PARTNER necessite relay, voir ci-dessous) |
+| status | 0=OK |
+| agent_or_client | 0=AGENT, 1=CLIENT |
+| battery_percent | Pourcentage (0-100) |
+
+Source decompilee : `RaceCmdTwsGetBattery.java`, `MmiStageTwsGetBattery.java`
+
+#### Partner Battery - via Relay cmd 3329 (0x0D01, RELAY_PASS_TO_DST)
+
+Le partner (2eme ecouteur) n'est pas directement accessible. Il faut passer par un mecanisme de relay :
+
+1. **Decouvrir le peer** via cmd 3328 (GetAvaDst)
+2. **Relayer cmd 3286** au partner via cmd 3329
+
+##### Etape 1 : GetAvaDst - cmd 3328 (0x0D00)
+
+```
+Envoi:  05 5A 02 00 00 0D
+Reponse: 05 5B LL LL 00 0D [status] [Dst_0_Type] [Dst_0_Id] [Dst_1_Type] [Dst_1_Id] ...
+```
+
+La reponse contient des paires (Type, Id) representant les destinations disponibles.
+Chercher **Type=5** (AWS peer = le partner TWS).
+
+| Type | Signification |
+|------|---------------|
+| 5 | AWS Peer (partner TWS) |
+
+Source decompilee : `MmiStageGetAvaDst.java`, `Dst.java`, `AvailabeDst.java`
+
+##### Etape 2 : Relay cmd 3329 (0x0D01)
+
+Emballe un paquet RACE complet dans un relay avec un prefixe Dst (2 octets).
+
+```
+Construction du relay :
+  Inner packet : build_race_packet(3286, {0})  =>  05 5A 03 00 D6 0C 00
+  Relay payload : [Dst_Type] [Dst_Id] + inner_packet
+  Envoi : build_race_packet(3329, relay_payload)
+
+Exemple avec Dst Type=5, Id=6 :
+  Inner:  05 5A 03 00 D6 0C 00
+  Relay:  05 5A 0B 00 01 0D 05 06 05 5A 03 00 D6 0C 00
+```
+
+La reponse arrive en plusieurs paquets :
+1. **ACK relay** (0x5B, cmd 3329) : status du relay lui-meme
+2. **ACK inner** (0x5D, cmd 3329) : le partner a recu la commande
+3. **Indication relay** (0x5D, cmd 3329) : contient l'indication interne du partner
+
+```
+Paquet final (indication relay wrappant indication interne) :
+  05 5D LL LL 01 0D [status] [Dst_Type] [Dst_Id]  05 5D 05 00 D6 0C [inner_status] [agent_or_client] [battery_percent]
+  |--- header relay (6) --| |-- Dst (2) --|  |--- inner indication (9) ---|
+
+Parsing :
+  outer[8:]  = inner_data (apres header relay + Dst)
+  inner_data[0:2] = 05 5D (head + type de l'indication interne)
+  inner_data[6]   = inner_status
+  inner_data[8]   = battery_percent du partner
+```
+
+Source decompilee : `MmiStageTwsGetBatteryRelay.java`, `RaceCmdRelayPass.java`, `AgentPartnerEnum.java`
 
 ### Get All Data (batch) - cmd 240
 
@@ -494,12 +583,30 @@ Exemple : recuperer ANC (10) + Battery (64) + Spatial Audio (99) :
 05 5A 08 00 F0 00 03 0A 00 40 00 63 00
 ```
 
-### Langue - cmd 4/5
+### Langue - cmd 37 GET / cmd 5 SET
+
+> **ATTENTION** : Le GET via cmd 4 retourne une valeur incorrecte sur AZ100 (toujours 1="en").
+> Utiliser cmd 37 (getLangRev) pour le GET, qui retourne la langue reelle via une indication 0x5D.
+> Le SET via cmd 5 fonctionne correctement.
 
 ```
-GET: 05 5A 02 00 04 00
-SET: 05 5A 03 00 05 00 [lang]
+GET (cmd 37, getLangRev):
+  Envoi:  05 5A 03 00 25 00 00       (payload=0x00 pour LEFT)
+  ACK:    05 5B 03 00 25 00 00       (0x5B, ignorer)
+  Indic:  05 5D LL LL 25 00 [status] [left_right] [lang_byte] [str_len] [version_str...]
+
+SET (cmd 5, inchange):
+  Envoi:  05 5A 03 00 05 00 [lang]
+  Reponse: 05 5B 03 00 05 00 [status]
 ```
+
+Le GET via cmd 37 retourne :
+| Offset (dans rest) | Champ | Description |
+|---------------------|-------|-------------|
+| 0 | left_right | 0=LEFT, 1=RIGHT |
+| 1 | lang_byte | Index de langue (voir tableau) |
+| 2 | str_len | Longueur de la version firmware VP |
+| 3+ | version_str | String ASCII de la version VP |
 
 | Valeur | Langue |
 |--------|--------|
@@ -724,7 +831,7 @@ Sans argument apres la commande = GET (lecture). Avec argument = SET (ecriture).
 | Commande CLI | cmd_id | Description | GET | SET |
 |-------------|--------|-------------|-----|-----|
 | `status` | 240 | Tous les parametres (batch) | x | |
-| `battery` | 3074 | Batterie ecouteurs | x | |
+| `battery` | 3286+3329+64 | Batterie (agent/partner/boitier) | x | |
 | `codec` | 18 | Info codec actuel | x | |
 | `color` | 2 | Couleur appareil | x | |
 | `anc [nc\|off\|ambient]` | 10/11 | Noise Canceling | x | x |
@@ -732,7 +839,7 @@ Sans argument apres la commande = GET (lecture). Avec argument = SET (ecriture).
 | `adaptive-anc [on\|off]` | 103/104 | ANC adaptatif | x | x |
 | `ambient-mode [transparent\|attention]` | 33/34 | Mode ambiant (+ `--music`) | x | x |
 | `outside-toggle [off,nc,ambient]` | 21/22 | Config bouton physique (bitmask) | x | x |
-| `eq [off\|bass\|clear-voice\|...]` | 12/13 | Egaliseur | x | x |
+| `eq [off\|bass\|clear-voice\|...]` | 0x0901/0x0900 | Egaliseur (Airoha PEQ) | x | x |
 | `spatial [on\|off]` | 99/100 | Audio spatial (+ `--head-tracking`) | x | x |
 | `multipoint [off\|on\|triple]` | 50/51 | Multipoint Bluetooth | x | x |
 | `switch-playing [on\|off]` | 85/86 | Bascule pendant la lecture | x | x |
@@ -745,13 +852,13 @@ Sans argument apres la commande = GET (lecture). Avec argument = SET (ecriture).
 | `noise-reduction [normal\|high]` | 52/53 | Reduction bruit appel | x | x |
 | `buffer [auto\|music\|video]` | 58/59 | Buffer audio/video | x | x |
 | `safe-volume [valeur]` | 92/93 | Volume max securise | x | x |
-| `language [ja\|en\|de\|fr\|...]` | 4/5 | Langue des annonces | x | x |
+| `language [ja\|en\|de\|fr\|...]` | 37/5 | Langue des annonces (GET via getLangRev) | x | x |
 | `jmv [on\|off\|start]` | 45/46/47 | Just My Voice | x | x |
 | `vp-outside [tone\|voice]` | 69 | Annonce changement ANC | | x |
 | `vp-connected [0-7]` | 70 | Annonce de connexion | | x |
 | `vp-volume [volume]` | 68 | Volume annonces vocales | | x |
 | `a2dp [sbc\|aac\|aptx\|ldac\|...]` | 16/17 | Preference codec Bluetooth | x | x |
-| `tws-battery` | 3286 | Batterie TWS (ecouteurs separes) | x | |
+| `tws-battery` | 3286+3329 | Batterie TWS (alias de battery) | x | |
 | `connected-devices` | 73 | Appareils connectes | x | |
 | `firmware-info` | 769/7688 | Infos firmware (SDK + build) | x | |
 | `find-me` | 32 | Localiser (`--blink/--ring/--target`) | | x |
@@ -789,7 +896,7 @@ App (CTk) : header, sidebar (8 boutons), content, status bar
 
 | Page | Fonctionnalites | Commandes utilisees |
 |------|-----------------|---------------------|
-| Batterie | 4 barres (agent/partner/boitier/TWS), couleur dynamique | `cmd_battery_get`, `cmd_cradle_battery_get`, `cmd_tws_battery_get` |
+| Batterie | 3 barres (agent/partner/boitier), couleur dynamique | `cmd_battery_get` (agent via 3286, partner via relay 3329, cradle via 64) |
 | ANC | Mode, niveau NC (slider), adaptatif, ambiant, bouton physique | `cmd_anc_get/set`, `cmd_anc_level_get/set`, `cmd_ambient_mode_get/set`, `cmd_outside_toggle_get/set`, generic adaptive-anc |
 | Audio | EQ (9 presets), spatial, head tracking, codec A2DP, buffer, codec actuel | `cmd_spatial_get/set`, `cmd_codec_get`, generic eq/a2dp/buffer |
 | Connexion | Multipoint, LE Audio, bascule lecture, liste appareils | `cmd_connected_devices_get`, generic multipoint/le-audio/switch-playing |
@@ -817,7 +924,8 @@ Ces commandes du protocole RACE ne sont pas exposees dans `technics.py` car elle
 | 3 | Color SET | Couleur physique, non modifiable logiciellement |
 | 23-27 | Key Enable / Keymap | Configuration avancee des boutons |
 | 35/36 | Wearing Detection v1 | Remplace par v3 (cmd 77/78) |
-| 37-40 | Language/VTrigger Revision | Revision firmware des langues |
+| 37 | Language Revision (getLangRev) | **Utilise pour GET langue** (remplace cmd 4 defaillant) |
+| 38-40 | VTrigger Lang / Revision | Revision firmware des langues vocales trigger |
 | 41-43 | Erase/Log Output | Gestion de logs internes |
 | 44 | Sensor Info | Donnees capteurs brutes |
 | 48 | Fix Outside Ctrl | Commande interne |
@@ -837,6 +945,66 @@ Ces commandes du protocole RACE ne sont pas exposees dans `technics.py` car elle
 
 ---
 
+## Commandes Airoha (non Panasonic, non standard RACE)
+
+### Airoha PEQ (Parametric EQ) - cmd 0x0901 GET / 0x0900 SET
+
+Sur AZ100, l'EQ est controle via les commandes Airoha PEQ et non via les commandes Panasonic 12/13.
+
+#### GET - cmd 2305 (0x0901)
+
+```
+Envoi:  05 5A 04 00 01 09 00 00       (payload = module_id LE = 0x0000)
+Reponse: 05 5B LL LL 01 09 [status] [module_id_lo] [module_id_hi] [eq_idx]
+```
+
+| Champ | Description |
+|-------|-------------|
+| module_id | 0x0000 (toujours) |
+| eq_idx | Index du mode EQ actif (meme mapping que Sound Mode cmd 12) |
+
+#### SET - cmd 2304 (0x0900)
+
+```
+Envoi:  05 5A 05 00 00 09 00 00 [eq_idx]  (module_id LE + eq_idx)
+Reponse: 05 5B LL LL 00 09 [status]
+```
+
+| eq_idx | Mode |
+|--------|------|
+| 0 | Off (Unset) |
+| 1 | Bass Enhancer |
+| 2 | Clear Voice |
+| 3 | Custom |
+| 4 | Bass Enhancer 2 |
+| 5 | Clear Voice 2 |
+| 9 | Super Bass Enhancer |
+| 10 | Custom 2 |
+| 11 | Custom 3 |
+
+Source decompilee : `AirohaPeqMgr.java`, `PeqStageLoadUiData.java`, `PeqStageSetPeqGrpIdx.java`
+
+---
+
+## Mecanisme des indications (0x5D)
+
+Certaines commandes ne retournent pas leurs donnees dans une reponse classique (0x5B) mais via une **indication** (0x5D). La reponse 0x5B sert alors uniquement d'ACK.
+
+### Commandes concernees
+
+| cmd_id | Fonction | Le 0x5B contient | Le 0x5D contient |
+|--------|----------|-------------------|-------------------|
+| 37 | getLangRev | ACK (status=0) | lang_byte, version string |
+| 3286 | TWS Battery | ACK (status=0, data partielle) | status, agent_or_client, battery_percent |
+
+### Filtrage dans send_recv
+
+Le parametre `expected_type` de `send_recv()` permet de filtrer le type de paquet attendu :
+- `expected_type=0x5B` (defaut) : retourne la premiere reponse 0x5B
+- `expected_type=0x5D` : ignore les 0x5B intermediaires, retourne la premiere indication 0x5D
+
+---
+
 ## Notes d'implementation
 
 1. **Byte order** : TOUT est little-endian (length, cmd_id). C'est la cause principale d'echec si ignore.
@@ -853,6 +1021,25 @@ Ces commandes du protocole RACE ne sont pas exposees dans `technics.py` car elle
 
 7. **Execution Windows** : Les scripts doivent tourner cote Windows (pas WSL) car le Bluetooth est gere par Windows. Utiliser `uv run` pour l'execution sans venv. Depuis WSL, les fichiers sont accessibles via `\\wsl.localhost\Debian\...`.
 
+8. **Commandes Panasonic vs Airoha** : Certaines commandes Panasonic (cmd 4 GET langue, cmd 12/13 EQ) ne fonctionnent pas correctement sur AZ100. Les equivalents Airoha (cmd 37 getLangRev, cmd 0x0901/0x0900 PEQ) doivent etre utilises a la place. Le SET reste souvent fonctionnel via la commande Panasonic (cmd 5 pour la langue).
+
+9. **Indications vs Reponses** : Certaines commandes (3286, 37) retournent leurs donnees dans des indications 0x5D et non dans des reponses 0x5B. Le 0x5B sert alors d'ACK. Il faut filtrer par type de paquet attendu.
+
+10. **Relay TWS** : Le partner (2eme ecouteur) n'est pas directement accessible. Les commandes doivent etre relayees via cmd 3329 (RELAY_PASS_TO_DST) avec un prefixe Dst obtenu via cmd 3328 (GetAvaDst). La reponse relay encapsule un paquet RACE interne.
+
+---
+
+## Errata et corrections
+
+Les commandes Panasonic documentees dans le tableau initial ont ete validees experimentalement.
+Certaines ne fonctionnent pas comme prevu sur AZ100 et ont du etre remplacees par des equivalents Airoha :
+
+| Commande Panasonic | Probleme sur AZ100 | Solution |
+|--------------------|---------------------|----------|
+| cmd 4 (GET langue) | Retourne toujours 1 ("en") | Utiliser cmd 37 (getLangRev), indication 0x5D |
+| cmd 12/13 (Sound Mode EQ) | GET retourne toujours 0, SET sans effet | Utiliser Airoha PEQ cmd 0x0901/0x0900 |
+| cmd 3074 (Battery Level) | Aucune reponse | Utiliser cmd 3286 avec payload + relay 3329 pour partner |
+
 ---
 
 ## Sources
@@ -862,6 +1049,10 @@ Ces commandes du protocole RACE ne sont pas exposees dans `technics.py` car elle
 - Package `com.airoha.libbase.RaceCommand.constant` (RaceId, RaceIdPana)
 - Package `com.airoha.libbase.RaceCommand.packet.pana` (commandes Panasonic)
 - Package `com.airoha.libmmi.stage.pana` (stages de commande avec payloads)
+- Package `com.airoha.libpeq` (PEQ stages, AirohaPeqMgr)
+- Package `com.airoha.libbase.relay` (Dst, RaceCmdRelayPass, RaceCmdGetAvaDst)
+- Package `com.airoha.libmmi1562.stage` (MmiStageTwsGetBattery, MmiStageTwsGetBatteryRelay, MmiStageGetAvaDst)
+- Package `com.airoha.libbase.constant` (AgentPartnerEnum)
 - Package `com.panasonic.audioconnect.airoha.data` (DeviceMmiConstants, OutsideCtrl)
 - RACE Toolkit : https://github.com/auracast-research/race-toolkit
 - ERNW White Paper 74 : Airoha RACE Bluetooth Headphone Vulnerabilities
