@@ -126,7 +126,7 @@ GENERIC_CMDS: dict[str, CmdDef] = {}
 def _reg(name, get_id, set_id, field, values, values_rev):
     GENERIC_CMDS[name] = CmdDef(name, get_id, set_id, field, values, values_rev)
 
-_reg("eq",               12, 13, "sound_mode",      EQ_MODES,              EQ_MODES_REV)
+# EQ utilise les commandes Airoha PEQ (0x0901/0x0900), pas les cmds Panasonic 12/13
 _reg("led",              19, 20, "mode",             ONOFF,                 ONOFF_REV)
 _reg("multipoint",       50, 51, "mode",             MULTIPOINT_MODES,      MULTIPOINT_MODES_REV)
 _reg("adaptive-anc",    103,104, "mode",             ONOFF,                 ONOFF_REV)
@@ -177,11 +177,13 @@ def bt_connect(address: str = MAC_ADDRESS, channel: int = RFCOMM_CHANNEL) -> soc
     return sock
 
 
-def send_recv(sock: socket.socket, data: bytes, timeout: float = 3) -> bytes:
+def send_recv(sock: socket.socket, data: bytes, timeout: float = 3,
+              expected_cmd: int | None = None) -> bytes:
     """Envoie des donnees et attend la reponse.
 
     Parse le header RACE pour determiner la taille attendue et retourner
     des que le paquet complet est recu (reponse 0x5B ou indication 0x5D).
+    Si expected_cmd est specifie, ignore les paquets dont le cmd_id ne correspond pas.
     """
     sock.send(data)
     sock.settimeout(timeout)
@@ -205,6 +207,10 @@ def send_recv(sock: socket.socket, data: bytes, timeout: float = 3) -> bytes:
             pkt = bytes(buf[:pkt_len])
             del buf[:pkt_len]
             if pkt[1] in (0x5B, 0x5D):
+                if expected_cmd is not None and len(pkt) >= 6:
+                    resp_cmd = struct.unpack("<H", pkt[4:6])[0]
+                    if resp_cmd != expected_cmd:
+                        continue  # ignorer les paquets non sollicites
                 return pkt
     if not buf:
         raise TimeoutError("Pas de reponse des ecouteurs")
@@ -217,7 +223,7 @@ def send_recv(sock: socket.socket, data: bytes, timeout: float = 3) -> bytes:
 def race_get(sock: socket.socket, cmd_id: int) -> bytes:
     """GET generique, retourne le payload (sans le status byte)."""
     pkt = build_race_packet(cmd_id)
-    resp = send_recv(sock, pkt)
+    resp = send_recv(sock, pkt, expected_cmd=cmd_id)
     _, status, rest = parse_race_response(resp)
     if status != 0:
         raise RuntimeError(f"GET cmd {cmd_id}: status={status}")
@@ -227,7 +233,7 @@ def race_get(sock: socket.socket, cmd_id: int) -> bytes:
 def race_set(sock: socket.socket, cmd_id: int, payload: bytes) -> int:
     """SET generique, retourne le status."""
     pkt = build_race_packet(cmd_id, payload)
-    resp = send_recv(sock, pkt)
+    resp = send_recv(sock, pkt, expected_cmd=cmd_id)
     _, status, _ = parse_race_response(resp)
     return status
 
@@ -266,6 +272,38 @@ def generic_set(sock: socket.socket, cmd: CmdDef, value) -> dict:
 # ---------------------------------------------------------------------------
 #  Commandes specialisees
 # ---------------------------------------------------------------------------
+
+# --- EQ / Sound Mode (Airoha PEQ, cmd 0x0901/0x0900) ---
+
+AIROHA_PEQ_GET = 0x0901
+AIROHA_PEQ_SET = 0x0900
+
+
+def cmd_eq_get(sock: socket.socket) -> dict:
+    """GET EQ via commande Airoha PEQ (Race ID 0x0901)."""
+    module_id = struct.pack("<H", 0x0000)
+    pkt = build_race_packet(AIROHA_PEQ_GET, module_id)
+    resp = send_recv(sock, pkt, expected_cmd=AIROHA_PEQ_GET)
+    _, status, rest = parse_race_response(resp)
+    if status != 0:
+        raise RuntimeError(f"EQ GET: status={status}")
+    # rest = [module_id_lo, module_id_hi, eq_idx]
+    eq_idx = rest[2] if len(rest) >= 3 else 0
+    return {"sound_mode": EQ_MODES_REV.get(eq_idx, f"inconnu({eq_idx})")}
+
+
+def cmd_eq_set(sock: socket.socket, mode_name: str) -> dict:
+    """SET EQ via commande Airoha PEQ (Race ID 0x0900)."""
+    if mode_name not in EQ_MODES:
+        raise ValueError(f"Mode EQ invalide '{mode_name}'. Choix: {list(EQ_MODES.keys())}")
+    eq_idx = EQ_MODES[mode_name]
+    payload = struct.pack("<H", 0x0000) + bytes([eq_idx])
+    pkt = build_race_packet(AIROHA_PEQ_SET, payload)
+    resp = send_recv(sock, pkt, expected_cmd=AIROHA_PEQ_SET)
+    _, status, _ = parse_race_response(resp)
+    check_status(status, "EQ SET")
+    return cmd_eq_get(sock)
+
 
 # --- ANC (cmd 10/11) ---
 
@@ -655,7 +693,7 @@ def cmd_vp_volume_set(sock: socket.socket, volume: int) -> dict:
 
 STATUS_CMD_IDS = [
     10,   # ANC
-    12,   # EQ
+    # EQ utilise Airoha PEQ (0x0901), pas le batch Panasonic cmd 12
     19,   # LED
     50,   # Multipoint
     99,   # Spatial
@@ -1066,6 +1104,12 @@ def dispatch(sock: socket.socket, args: argparse.Namespace) -> dict:
         if args.level is not None:
             return cmd_anc_level_set(sock, args.level)
         return cmd_anc_level_get(sock)
+
+    # --- EQ (Airoha PEQ) ---
+    if cmd == "eq":
+        if args.mode:
+            return cmd_eq_set(sock, args.mode)
+        return cmd_eq_get(sock)
 
     # --- Spatial ---
     if cmd == "spatial":

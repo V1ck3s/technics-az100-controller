@@ -358,8 +358,7 @@ class ANCPage(BasePage):
         self._status("Lecture ANC...")
         self.bt.run(tc.cmd_anc_get, callback=self._cb(self._on_anc_data))
         self.bt.run(tc.cmd_anc_level_get, callback=self._cb(self._on_level_data))
-        self.bt.run(tc.generic_get, tc.GENERIC_CMDS["adaptive-anc"],
-                    callback=self._cb(self._on_adaptive_data))
+        # Adaptive ANC (cmd 103) ne repond pas en GET sur EAH-AZ100
         self.bt.run(tc.cmd_ambient_mode_get, callback=self._cb(self._on_ambient_data))
         self.bt.run(tc.cmd_outside_toggle_get, callback=self._cb(self._on_toggle_data))
 
@@ -529,7 +528,7 @@ class AudioPage(BasePage):
         sec.pack(fill="x")
         c = sec.content
         eq_values = list(EQ_LABELS.values())
-        self._eq_var = ctk.StringVar(value=eq_values[0])
+        self._eq_var = ctk.StringVar(value="--")
         self._eq_menu = ctk.CTkOptionMenu(
             c, values=eq_values, variable=self._eq_var,
             command=self._on_eq)
@@ -583,8 +582,7 @@ class AudioPage(BasePage):
             return
         self._loading = True
         self._status("Lecture audio...")
-        self.bt.run(tc.generic_get, tc.GENERIC_CMDS["eq"],
-                    callback=self._cb(self._on_eq_data))
+        self.bt.run(tc.cmd_eq_get, callback=self._cb(self._on_eq_data))
         self.bt.run(tc.cmd_spatial_get, callback=self._cb(self._on_spatial_data))
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["a2dp"],
                     callback=self._cb(self._on_a2dp_data))
@@ -596,10 +594,6 @@ class AudioPage(BasePage):
         super().populate_from_batch(data)
         self._loading = True
         try:
-            if "eq" in data:
-                mode = data["eq"].get("sound_mode", "off")
-                label = EQ_LABELS.get(mode, mode)
-                self._eq_var.set(label)
             if "spatial" in data:
                 self._spatial.set(data["spatial"].get("mode") == "on")
                 self._head_tracking.set(data["spatial"].get("head_tracking") == "on")
@@ -608,21 +602,25 @@ class AudioPage(BasePage):
                 self._buffer.set(buf_map.get(data["buffer"].get("mode", "auto"), "Auto"))
         finally:
             self._loading = False
+        # EQ n'est pas dans le batch, GET via Airoha PEQ
+        if self.bt.connected:
+            self.bt.run(tc.cmd_eq_get, callback=self._cb(self._on_eq_data))
 
     def _on_eq_data(self, result, error):
         if error:
-            self._loading = False
             return
-        label = EQ_LABELS.get(result.get("label", "off"), result.get("label", "off"))
+        mode = result.get("sound_mode", "off")
+        label = EQ_LABELS.get(mode, mode)
         self._eq_var.set(label)
-        self._loading = False
-        self._status("Audio mis a jour")
 
     def _on_spatial_data(self, result, error):
         if error:
+            self._loading = False
             return
         self._spatial.set(result.get("mode") == "on")
         self._head_tracking.set(result.get("head_tracking") == "on")
+        self._loading = False
+        self._status("Audio mis a jour")
 
     def _on_a2dp_data(self, result, error):
         if error:
@@ -652,7 +650,7 @@ class AudioPage(BasePage):
         mode = rev.get(value)
         if mode:
             self._status(f"EQ -> {value}...")
-            self.bt.run(tc.generic_set, tc.GENERIC_CMDS["eq"], mode,
+            self.bt.run(tc.cmd_eq_set, mode,
                         callback=self._cb(lambda r, e: self._status(
                             f"EQ: {value}" if not e else f"Erreur: {e}")))
 
@@ -897,7 +895,7 @@ class SettingsPage(BasePage):
         sec5 = Section(self, "Langue des annonces")
         sec5.pack(fill="x")
         lang_values = list(LANGUAGE_LABELS.values())
-        self._lang_var = ctk.StringVar(value=lang_values[0])
+        self._lang_var = ctk.StringVar(value="--")
         self._lang_menu = ctk.CTkOptionMenu(
             sec5.content, values=lang_values, variable=self._lang_var,
             command=self._on_language)
@@ -914,12 +912,9 @@ class SettingsPage(BasePage):
             return
         self._loading = True
         self._status("Lecture reglages...")
-        self.bt.run(tc.generic_get, tc.GENERIC_CMDS["led"],
-                    callback=self._cb(self._on_led_data))
+        # LED (cmd 19) et Safe Volume (cmd 92) ne repondent pas en GET sur EAH-AZ100
         self.bt.run(tc.cmd_wearing_get, callback=self._cb(self._on_wearing_data))
         self.bt.run(tc.cmd_auto_power_off_get, callback=self._cb(self._on_auto_off_data))
-        self.bt.run(tc.generic_get, tc.GENERIC_CMDS["safe-volume"],
-                    callback=self._cb(self._on_safe_vol_data))
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["language"],
                     callback=self._cb(self._on_lang_data))
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["ringtone-talking"],
@@ -955,34 +950,22 @@ class SettingsPage(BasePage):
         finally:
             self._loading = False
 
-    def _on_led_data(self, result, error):
-        if error:
-            self._loading = False
-            return
-        self._led.set(result.get("label") == "on")
-        self._loading = False
-        self._status("Reglages mis a jour")
-
     def _on_wearing_data(self, result, error):
         if error:
+            self._loading = False
             return
         self._wearing.set(result.get("wearing_detection") == "on")
         self._wearing_music.set(result.get("music") == "on")
         self._wearing_touch.set(result.get("touch") == "on")
         self._wearing_replay.set(result.get("replay") == "on")
+        self._loading = False
+        self._status("Reglages mis a jour")
 
     def _on_auto_off_data(self, result, error):
         if error:
             return
         self._auto_off.set(result.get("mode") == "on")
         self._auto_off_min.set(str(result.get("minutes", 30)))
-
-    def _on_safe_vol_data(self, result, error):
-        if error:
-            return
-        val = result.get(tc.GENERIC_CMDS["safe-volume"].field, 0)
-        self._safe_vol_slider.set(val)
-        self._safe_vol_label.configure(text=str(val))
 
     def _on_lang_data(self, result, error):
         if error:
