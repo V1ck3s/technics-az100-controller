@@ -915,8 +915,7 @@ class SettingsPage(BasePage):
         # LED (cmd 19) et Safe Volume (cmd 92) ne repondent pas en GET sur EAH-AZ100
         self.bt.run(tc.cmd_wearing_get, callback=self._cb(self._on_wearing_data))
         self.bt.run(tc.cmd_auto_power_off_get, callback=self._cb(self._on_auto_off_data))
-        self.bt.run(tc.generic_get, tc.GENERIC_CMDS["language"],
-                    callback=self._cb(self._on_lang_data))
+        self.bt.run(tc.cmd_lang_get, callback=self._cb(self._on_lang_data))
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["ringtone-talking"],
                     callback=self._cb(self._on_ringtone_data))
 
@@ -941,14 +940,14 @@ class SettingsPage(BasePage):
                 val = data["safe_volume"].get("value", 0)
                 self._safe_vol_slider.set(val)
                 self._safe_vol_label.configure(text=str(val))
-            if "language" in data:
-                lang = data["language"].get("lang", "en")
-                label = LANGUAGE_LABELS.get(lang, lang)
-                self._lang_var.set(label)
+            # Language n'est pas dans le batch, GET via cmd 37
             if "ringtone_talking" in data:
                 self._ringtone.set(data["ringtone_talking"].get("mode") == "on")
         finally:
             self._loading = False
+        # Language n'est pas dans le batch, GET via cmd 37
+        if self.bt.connected:
+            self.bt.run(tc.cmd_lang_get, callback=self._cb(self._on_lang_data))
 
     def _on_wearing_data(self, result, error):
         if error:
@@ -1043,7 +1042,7 @@ class SettingsPage(BasePage):
         lang = rev.get(value)
         if lang:
             self._status(f"Langue -> {value}...")
-            self.bt.run(tc.generic_set, tc.GENERIC_CMDS["language"], lang,
+            self.bt.run(tc.cmd_lang_set, lang,
                         callback=self._cb(lambda r, e: self._status(
                             f"Langue: {value}" if not e else f"Erreur: {e}")))
 

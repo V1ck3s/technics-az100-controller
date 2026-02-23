@@ -136,7 +136,7 @@ _reg("buffer",           58, 59, "mode",             BUFFER_MODES,          BUFF
 _reg("switch-playing",   85, 86, "mode",             ONOFF,                 ONOFF_REV)
 _reg("ringtone-talking", 87, 88, "mode",             ONOFF,                 ONOFF_REV)
 _reg("assistant",         8,  9, "mode",             ASSISTANT_MODES,       ASSISTANT_MODES_REV)
-_reg("language",          4,  5, "lang",             LANGUAGE_MAP,          LANGUAGE_MAP_REV)
+# Language utilise cmd 37 (getLangRev) pour GET, cmd 5 pour SET
 _reg("safe-volume",      92, 93, "value",            None,                  None)
 _reg("jmv",              46, 45, "mode",             JMV_MODES,             JMV_MODES_REV)
 _reg("a2dp",             16, 17, "codec",            A2DP_CODECS,           A2DP_CODECS_REV)
@@ -178,12 +178,14 @@ def bt_connect(address: str = MAC_ADDRESS, channel: int = RFCOMM_CHANNEL) -> soc
 
 
 def send_recv(sock: socket.socket, data: bytes, timeout: float = 3,
-              expected_cmd: int | None = None) -> bytes:
+              expected_cmd: int | None = None,
+              expected_type: int | None = None) -> bytes:
     """Envoie des donnees et attend la reponse.
 
     Parse le header RACE pour determiner la taille attendue et retourner
     des que le paquet complet est recu (reponse 0x5B ou indication 0x5D).
     Si expected_cmd est specifie, ignore les paquets dont le cmd_id ne correspond pas.
+    Si expected_type est specifie (0x5B ou 0x5D), ignore les paquets d'un autre type.
     """
     sock.send(data)
     sock.settimeout(timeout)
@@ -207,6 +209,8 @@ def send_recv(sock: socket.socket, data: bytes, timeout: float = 3,
             pkt = bytes(buf[:pkt_len])
             del buf[:pkt_len]
             if pkt[1] in (0x5B, 0x5D):
+                if expected_type is not None and pkt[1] != expected_type:
+                    continue  # ignorer les paquets du mauvais type
                 if expected_cmd is not None and len(pkt) >= 6:
                     resp_cmd = struct.unpack("<H", pkt[4:6])[0]
                     if resp_cmd != expected_cmd:
@@ -303,6 +307,40 @@ def cmd_eq_set(sock: socket.socket, mode_name: str) -> dict:
     _, status, _ = parse_race_response(resp)
     check_status(status, "EQ SET")
     return cmd_eq_get(sock)
+
+
+# --- Language (cmd 37 GET / cmd 5 SET) ---
+
+def cmd_lang_get(sock: socket.socket) -> dict:
+    """GET langue via cmd 37 (getLangRev).
+
+    La reponse arrive en indication (0x5D) apres un ACK (0x5B).
+    Contient le byte langue et la version firmware voice guidance.
+    """
+    pkt = build_race_packet(37, bytes([0]))  # 0 = LEFT
+    resp = send_recv(sock, pkt, expected_cmd=37, expected_type=0x5D)
+    _, status, rest = parse_race_response(resp)
+    if status != 0:
+        raise RuntimeError(f"Lang GET: status={status}")
+    # rest = [left_right, lang_byte, str_len, version_str...]
+    lang_byte = rest[1] if len(rest) >= 2 else 0
+    lang = LANGUAGE_MAP_REV.get(lang_byte, f"inconnu({lang_byte})")
+    result = {"lang": lang_byte, "label": lang}
+    if len(rest) >= 3:
+        str_len = rest[2]
+        if len(rest) >= 3 + str_len:
+            result["version"] = rest[3:3 + str_len].rstrip(b'\x00').decode("ascii", errors="replace")
+    return result
+
+
+def cmd_lang_set(sock: socket.socket, lang_name: str) -> dict:
+    """SET langue via cmd 5."""
+    if lang_name not in LANGUAGE_MAP:
+        raise ValueError(f"Langue invalide '{lang_name}'. Choix: {list(LANGUAGE_MAP.keys())}")
+    raw = LANGUAGE_MAP[lang_name]
+    status = race_set(sock, 5, bytes([raw]))
+    check_status(status, "lang set")
+    return cmd_lang_get(sock)
 
 
 # --- ANC (cmd 10/11) ---
@@ -710,7 +748,7 @@ STATUS_CMD_IDS = [
     89,   # LE Audio
     92,   # Safe Volume
     8,    # Assistant
-    4,    # Language
+    # Language utilise cmd 37 (getLangRev), pas le batch cmd 4
     46,   # JMV
     64,   # Cradle Battery
 ]
@@ -855,9 +893,7 @@ def _parse_batch_result(raw: dict[int, bytes]) -> dict:
     if 8 in raw and raw[8]:
         out["assistant"] = {"mode": ASSISTANT_MODES_REV.get(raw[8][0], str(raw[8][0]))}
 
-    # Language (4)
-    if 4 in raw and raw[4]:
-        out["language"] = {"lang": LANGUAGE_MAP_REV.get(raw[4][0], str(raw[4][0]))}
+    # Language: utilise cmd 37 (getLangRev), pas dans le batch
 
     # JMV (46)
     if 46 in raw and raw[46]:
@@ -1110,6 +1146,13 @@ def dispatch(sock: socket.socket, args: argparse.Namespace) -> dict:
         if args.mode:
             return cmd_eq_set(sock, args.mode)
         return cmd_eq_get(sock)
+
+    # --- Language (cmd 37 GET / cmd 5 SET) ---
+    if cmd == "language":
+        val = getattr(args, "lang", None)
+        if val:
+            return cmd_lang_set(sock, val)
+        return cmd_lang_get(sock)
 
     # --- Spatial ---
     if cmd == "spatial":
