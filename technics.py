@@ -526,61 +526,105 @@ def cmd_find_me(sock: socket.socket, blink: bool = False,
 
 # --- Battery ---
 
-def _parse_system_battery(resp: bytes) -> tuple[str, int]:
-    """Parse une reponse batterie systeme (cmd 3074/3286).
+def _get_peer_dst(sock: socket.socket) -> tuple[int, int] | None:
+    """Decouvre la destination du peer (partner) via cmd 3328 (GetAvaDst).
 
-    Les commandes systeme n'ont PAS de status byte dans le payload.
-    parse_race_response traite le 1er octet comme status, donc:
-      - 'status' = agent_or_client (0=agent, 1=partner)
-      - 'rest'   = [battery_percent]
+    Retourne (Type, Id) du peer AWS (Type=5) ou None si absent.
     """
-    _, role_byte, rest = parse_race_response(resp)
-    role = "agent" if role_byte == 0 else "partner"
-    level = rest[0] if rest else -1
-    return role, level
+    pkt = build_race_packet(3328)
+    resp = send_recv(sock, pkt, expected_cmd=3328)
+    payload = resp[6:]
+    for i in range(0, len(payload) - 1, 2):
+        if payload[i] == 5:  # Type=5 = AWS peer
+            return (payload[i], payload[i + 1])
+    return None
+
+
+def _parse_tws_battery(resp: bytes) -> tuple[int, int]:
+    """Parse une reponse batterie TWS (cmd 3286, indication 0x5D).
+
+    Retourne (agent_or_client, battery_percent).
+    Format: [head][type][len][cmd_id_le][status][agent_or_client][battery]
+    """
+    _, status, rest = parse_race_response(resp)
+    if status != 0:
+        raise RuntimeError(f"TWS battery: status={status}")
+    agent_or_client = rest[0] if rest else 0
+    level = rest[1] if len(rest) >= 2 else -1
+    return agent_or_client, level
 
 
 def cmd_battery_get(sock: socket.socket) -> dict:
     """Recupere toutes les infos batterie disponibles.
 
-    Utilise cmd 64 (Cradle Battery) comme source fiable,
-    puis tente les commandes systeme 3074/3286 pour les ecouteurs.
+    - Agent: cmd 3286 avec payload {0} (indication 0x5D)
+    - Partner: relay cmd 3329 wrappant cmd 3286 via peer Dst
+    - Cradle: cmd 64
     """
     results = {}
-    # Cradle battery (cmd 64) - fonctionne sur EAH-AZ100
+    # Cradle battery (cmd 64)
     try:
         data = race_get(sock, 64)
         if data:
             results["cradle"] = data[0]
     except (TimeoutError, RuntimeError):
         pass
-    # Earbuds battery (cmd systeme 3074) - peut ne pas repondre
+    # Agent battery (cmd 3286 avec payload {0})
     try:
-        resp = send_recv(sock, build_race_packet(3074))
-        role, level = _parse_system_battery(resp)
+        pkt = build_race_packet(3286, bytes([0]))
+        resp = send_recv(sock, pkt, expected_cmd=3286, expected_type=0x5D)
+        _, level = _parse_tws_battery(resp)
         if level >= 0:
-            results[role] = level
-    except (TimeoutError, ValueError):
+            results["agent"] = level
+    except (TimeoutError, RuntimeError, ValueError):
         pass
-    # TWS battery (cmd systeme 3286) - peut ne pas repondre
+    # Partner battery via relay (cmd 3329 wrappant cmd 3286)
     try:
-        resp = send_recv(sock, build_race_packet(3286))
-        role, level = _parse_system_battery(resp)
-        if level >= 0:
-            results[f"tws_{role}"] = level
-    except (TimeoutError, ValueError):
+        peer = _get_peer_dst(sock)
+        if peer:
+            inner = build_race_packet(3286, bytes([0]))
+            relay_payload = bytes([peer[0], peer[1]]) + inner
+            pkt = build_race_packet(3329, relay_payload)
+            sock.send(pkt)
+            # Collecter les paquets jusqu'a trouver l'indication relay
+            # contenant l'indication interne (0x5D wrappant 0x5D)
+            sock.settimeout(5)
+            buf = bytearray()
+            start = time.time()
+            partner_level = -1
+            while time.time() - start < 5:
+                try:
+                    chunk = sock.recv(1024)
+                    if not chunk:
+                        break
+                    buf.extend(chunk)
+                except socket.timeout:
+                    if partner_level >= 0:
+                        break
+                    continue
+                while len(buf) >= 4:
+                    pkt_len = 4 + struct.unpack("<H", buf[2:4])[0]
+                    if len(buf) < pkt_len:
+                        sock.settimeout(0.5)
+                        break
+                    p = bytes(buf[:pkt_len])
+                    del buf[:pkt_len]
+                    # Chercher indication relay (0x5D pour cmd 3329)
+                    # contenant une indication interne (0x5D pour cmd 3286)
+                    if p[1] == 0x5D and len(p) >= 8:
+                        inner_data = p[8:]  # apres header relay (6) + Dst (2)
+                        if (len(inner_data) >= 9 and inner_data[0] == 0x05
+                                and inner_data[1] == 0x5D):
+                            # Inner indication pour cmd 3286
+                            inner_status = inner_data[6]
+                            if inner_status == 0 and len(inner_data) >= 9:
+                                partner_level = inner_data[8]
+                                break
+            if partner_level >= 0:
+                results["partner"] = partner_level
+    except (TimeoutError, RuntimeError, ValueError):
         pass
     return results
-
-
-def cmd_tws_battery_get(sock: socket.socket) -> dict:
-    """TWS battery (cmd systeme 3286) - utilise par la GUI separement."""
-    try:
-        resp = send_recv(sock, build_race_packet(3286))
-        role, level = _parse_system_battery(resp)
-        return {role: level}
-    except (TimeoutError, ValueError):
-        return {}
 
 
 # --- Connected Devices (cmd 73) - GET only ---
@@ -1090,8 +1134,8 @@ def build_parser() -> argparse.ArgumentParser:
                     choices=list(A2DP_CODECS.keys()),
                     help="Codec prefere (vide = lecture)")
 
-    # --- TWS Battery ---
-    sub.add_parser("tws-battery", help="Batterie TWS (ecouteurs separes)")
+    # --- TWS Battery (alias de battery) ---
+    sub.add_parser("tws-battery", help="Batterie TWS (alias de battery)")
 
     # --- Connected Devices ---
     sub.add_parser("connected-devices", help="Appareils connectes")
@@ -1119,7 +1163,7 @@ def dispatch(sock: socket.socket, args: argparse.Namespace) -> dict:
     if cmd == "battery":
         return cmd_battery_get(sock)
     if cmd == "tws-battery":
-        return cmd_tws_battery_get(sock)
+        return cmd_battery_get(sock)
     if cmd == "codec":
         return cmd_codec_get(sock)
     if cmd == "color":

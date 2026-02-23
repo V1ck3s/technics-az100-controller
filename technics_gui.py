@@ -218,8 +218,8 @@ class BatteryPage(BasePage):
         c = sec.content
 
         self._bars = {}
-        for label_text, key in [("Agent", "agent"), ("Partner", "partner"),
-                                ("Boitier", "cradle"), ("TWS", "tws")]:
+        for label_text, key in [("Agent (L)", "agent"), ("Partner (R)", "partner"),
+                                ("Boitier", "cradle")]:
             row = ctk.CTkFrame(c, fg_color="transparent")
             row.pack(fill="x", padx=8, pady=4)
             row.grid_columnconfigure(1, weight=1)
@@ -242,8 +242,6 @@ class BatteryPage(BasePage):
             return
         self._status("Lecture batterie...")
         self.bt.run(tc.cmd_battery_get, callback=self._cb(self._on_battery))
-        self.bt.run(tc.cmd_cradle_battery_get, callback=self._cb(self._on_cradle))
-        self.bt.run(tc.cmd_tws_battery_get, callback=self._cb(self._on_tws))
 
     def populate_from_batch(self, data: dict):
         super().populate_from_batch(data)
@@ -255,23 +253,10 @@ class BatteryPage(BasePage):
         if error:
             self._status(f"Erreur batterie: {error}")
             return
-        for key in ("agent", "partner"):
+        for key in ("agent", "partner", "cradle"):
             if key in result:
                 self._update_bar(key, result[key])
         self._status("Batterie mise a jour")
-
-    def _on_cradle(self, result, error):
-        if error:
-            return
-        level = result.get("cradle_battery", 0)
-        self._update_bar("cradle", level)
-
-    def _on_tws(self, result, error):
-        if error:
-            return
-        for key in ("agent", "partner"):
-            if key in result:
-                self._update_bar("tws", result[key])
 
     def _update_bar(self, key: str, level: int):
         if key not in self._bars:
