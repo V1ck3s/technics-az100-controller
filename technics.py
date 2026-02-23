@@ -545,23 +545,20 @@ def cmd_connected_devices_get(sock: socket.socket) -> dict:
 
 def cmd_firmware_info_get(sock: socket.socket) -> dict:
     result = {}
-    # SDK Version (769 = 0x0301)
+    # SDK Version (769 = 0x0301) - commande systeme sans status byte
     try:
-        pkt = build_race_packet(769)
-        resp = send_recv(sock, pkt)
-        _, status, data = parse_race_response(resp)
-        if status == 0 and data:
-            result["sdk_version"] = data.decode("utf-8", errors="replace").rstrip("\x00")
+        resp = send_recv(sock, build_race_packet(769))
+        payload = resp[6:]  # payload complet = version string
+        if payload:
+            result["sdk_version"] = payload.decode("utf-8", errors="replace").rstrip("\x00")
     except Exception:
-        result["sdk_version"] = "erreur"
+        pass
 
-    # Build Version Info (7688 = 0x1E08)
+    # Build Version Info (7688 = 0x1E08) - commande systeme avec status byte
     try:
-        pkt = build_race_packet(7688)
-        resp = send_recv(sock, pkt)
+        resp = send_recv(sock, build_race_packet(7688))
         _, status, data = parse_race_response(resp)
         if status == 0 and data:
-            # Format : chaines separees par des null bytes
             parts = data.decode("utf-8", errors="replace").rstrip("\x00").split("\x00")
             if len(parts) >= 1:
                 result["soc_name"] = parts[0]
@@ -569,10 +566,8 @@ def cmd_firmware_info_get(sock: socket.socket) -> dict:
                 result["sdk_name"] = parts[1]
             if len(parts) >= 3:
                 result["build_date"] = parts[2]
-            if len(parts) == 1:
-                result["build_info"] = parts[0]
     except Exception:
-        result["build_info"] = "erreur"
+        pass
 
     return result
 

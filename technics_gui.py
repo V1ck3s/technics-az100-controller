@@ -294,7 +294,6 @@ class BatteryPage(BasePage):
 # --- Page ANC ---
 
 class ANCPage(BasePage):
-    BATCH_COMPLETE = True
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
@@ -643,7 +642,7 @@ class AudioPage(BasePage):
         for key, lbl in self._codec_info.items():
             val = result.get(key, "--")
             if key == "bitrate" and isinstance(val, int):
-                val = f"{val} kbps"
+                val = f"{val} kbps" if val > 0 else "N/A"
             lbl.configure(text=str(val))
 
     def _on_eq(self, value):
@@ -842,7 +841,6 @@ class ConnectivityPage(BasePage):
 # --- Page Reglages ---
 
 class SettingsPage(BasePage):
-    BATCH_COMPLETE = True
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
@@ -1085,7 +1083,6 @@ class SettingsPage(BasePage):
 # --- Page Voix ---
 
 class VoicePage(BasePage):
-    BATCH_COMPLETE = True
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
@@ -1174,6 +1171,8 @@ class VoicePage(BasePage):
                 nr_map = {"normal": "Normal", "high": "Eleve"}
                 self._noise_red.set(nr_map.get(
                     data["noise_reduction"].get("mode", "normal"), "Normal"))
+            if "jmv" in data:
+                self._jmv.set(data["jmv"].get("mode") == "on")
         finally:
             self._loading = False
 
