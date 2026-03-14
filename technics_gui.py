@@ -3,10 +3,10 @@
 # dependencies = ["customtkinter>=5.2"]
 # ///
 """
-Technics EAH-AZ100 - Interface graphique (customtkinter)
+Technics EAH-AZ100 - GUI (customtkinter)
 
-Expose toutes les fonctionnalites de technics.py dans une GUI moderne.
-Lancement : uv run technics_gui.py
+Exposes all features from technics.py in a modern GUI.
+Launch: uv run technics_gui.py
 """
 
 import json
@@ -19,7 +19,7 @@ import customtkinter as ctk
 import technics as tc
 
 # ---------------------------------------------------------------------------
-#  Constantes GUI
+#  GUI Constants
 # ---------------------------------------------------------------------------
 
 ACCENT = "#1f6aa5"
@@ -35,20 +35,20 @@ TEXT = "#ecf0f1"
 TEXT_DIM = "#95a5a6"
 
 PAGES = [
-    ("Batterie", "battery"),
+    ("Battery", "battery"),
     ("ANC", "anc"),
     ("Audio", "audio"),
-    ("Connexion", "connectivity"),
-    ("Reglages", "settings"),
-    ("Voix", "voice"),
-    ("Infos", "info"),
-    ("Outils", "tools"),
+    ("Connectivity", "connectivity"),
+    ("Settings", "settings"),
+    ("Voice", "voice"),
+    ("Info", "info"),
+    ("Tools", "tools"),
 ]
 
 EQ_LABELS = {
-    "off": "Aucun", "bass": "Bass+", "clear-voice": "Voix claire",
-    "custom": "Perso 1", "bass2": "Bass+ 2", "clear-voice2": "Voix claire 2",
-    "super-bass": "Super Bass", "custom2": "Perso 2", "custom3": "Perso 3",
+    "off": "None", "bass": "Bass+", "clear-voice": "Clear Voice",
+    "custom": "Custom 1", "bass2": "Bass+ 2", "clear-voice2": "Clear Voice 2",
+    "super-bass": "Super Bass", "custom2": "Custom 2", "custom3": "Custom 3",
 }
 
 CODEC_LABELS = {
@@ -57,18 +57,18 @@ CODEC_LABELS = {
 }
 
 LANGUAGE_LABELS = {
-    "ja": "Japonais", "en": "Anglais", "de": "Allemand", "fr": "Francais",
-    "fr-ca": "Francais (CA)", "es": "Espagnol", "it": "Italien",
-    "pl": "Polonais", "ru": "Russe", "uk": "Ukrainien",
-    "zh": "Chinois", "yue": "Cantonais",
+    "ja": "Japanese", "en": "English", "de": "German", "fr": "French",
+    "fr-ca": "French (CA)", "es": "Spanish", "it": "Italian",
+    "pl": "Polish", "ru": "Russian", "uk": "Ukrainian",
+    "zh": "Chinese", "yue": "Cantonese",
 }
 
 # ---------------------------------------------------------------------------
-#  BTWorker - Operations Bluetooth en thread
+#  BTWorker - Bluetooth operations in thread
 # ---------------------------------------------------------------------------
 
 class BTWorker:
-    """Gere les operations Bluetooth dans un thread daemon."""
+    """Handles Bluetooth operations in a daemon thread."""
 
     def __init__(self):
         self.sock = None
@@ -114,11 +114,11 @@ class BTWorker:
 
 
 # ---------------------------------------------------------------------------
-#  Widgets reutilisables
+#  Reusable widgets
 # ---------------------------------------------------------------------------
 
 class Section(ctk.CTkFrame):
-    """Cadre de section avec titre."""
+    """Section frame with title."""
 
     def __init__(self, parent, title: str, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
@@ -135,7 +135,7 @@ class Section(ctk.CTkFrame):
 
 
 class ToggleRow(ctk.CTkFrame):
-    """Ligne avec label + switch."""
+    """Row with label + switch."""
 
     def __init__(self, parent, label: str, command=None, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
@@ -160,9 +160,9 @@ class ToggleRow(ctk.CTkFrame):
 # ---------------------------------------------------------------------------
 
 class BasePage(ctk.CTkScrollableFrame):
-    """Page de base avec acces a l'app et au worker BT."""
+    """Base page with access to the app and BT worker."""
 
-    # Pages dont toutes les donnees sont dans le batch (pas de refresh necessaire)
+    # Pages whose data is fully covered by the batch (no refresh needed)
     BATCH_COMPLETE = False
 
     def __init__(self, parent, app: "App"):
@@ -176,15 +176,15 @@ class BasePage(ctk.CTkScrollableFrame):
         return self.app.bt
 
     def refresh(self):
-        """Recharge les donnees depuis les ecouteurs."""
+        """Reload data from the earbuds."""
         pass
 
     def populate_from_batch(self, data: dict):
-        """Rempli la page depuis les donnees batch."""
+        """Populate the page from batch data."""
         self._populated = True
 
     def _cb(self, callback):
-        """Wrap un callback pour l'executer dans le thread UI."""
+        """Wrap a callback to execute it in the UI thread."""
         def wrapper(*args):
             self.app.after(0, lambda: callback(*args))
         return wrapper
@@ -193,7 +193,7 @@ class BasePage(ctk.CTkScrollableFrame):
         self.app.set_status(msg)
 
     def _set_enabled(self, enabled: bool):
-        """Active/desactive les controles de la page."""
+        """Enable/disable page controls."""
         state = "normal" if enabled else "disabled"
         for widget in self._iter_controls():
             try:
@@ -202,24 +202,24 @@ class BasePage(ctk.CTkScrollableFrame):
                 pass
 
     def _iter_controls(self):
-        """Iterateur sur les widgets interactifs."""
+        """Iterator over interactive widgets."""
         return []
 
 
-# --- Page Batterie ---
+# --- Battery Page ---
 
 class BatteryPage(BasePage):
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
 
-        sec = Section(self, "Niveaux de batterie")
+        sec = Section(self, "Battery Levels")
         sec.pack(fill="x")
         c = sec.content
 
         self._bars = {}
         for label_text, key in [("Agent (L)", "agent"), ("Partner (R)", "partner"),
-                                ("Boitier", "cradle")]:
+                                ("Case", "cradle")]:
             row = ctk.CTkFrame(c, fg_color="transparent")
             row.pack(fill="x", padx=8, pady=4)
             row.grid_columnconfigure(1, weight=1)
@@ -233,14 +233,14 @@ class BatteryPage(BasePage):
             lbl.grid(row=0, column=2)
             self._bars[key] = (bar, lbl)
 
-        btn = ctk.CTkButton(self, text="Rafraichir", command=self.refresh, width=120)
+        btn = ctk.CTkButton(self, text="Refresh", command=self.refresh, width=120)
         btn.pack(pady=12)
         self._refresh_btn = btn
 
     def refresh(self):
         if not self.bt.connected:
             return
-        self._status("Lecture batterie...")
+        self._status("Reading battery...")
         self.bt.run(tc.cmd_battery_get, callback=self._cb(self._on_battery))
 
     def populate_from_batch(self, data: dict):
@@ -251,12 +251,12 @@ class BatteryPage(BasePage):
 
     def _on_battery(self, result, error):
         if error:
-            self._status(f"Erreur batterie: {error}")
+            self._status(f"Battery error: {error}")
             return
         for key in ("agent", "partner", "cradle"):
             if key in result:
                 self._update_bar(key, result[key])
-        self._status("Batterie mise a jour")
+        self._status("Battery updated")
 
     def _update_bar(self, key: str, level: int):
         if key not in self._bars:
@@ -276,15 +276,15 @@ class BatteryPage(BasePage):
         return [self._refresh_btn]
 
 
-# --- Page ANC ---
+# --- ANC Page ---
 
 class ANCPage(BasePage):
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
 
-        # Mode ANC
-        sec = Section(self, "Mode ANC")
+        # ANC Mode
+        sec = Section(self, "ANC Mode")
         sec.pack(fill="x")
         c = sec.content
         self._anc_mode = ctk.CTkSegmentedButton(
@@ -292,8 +292,8 @@ class ANCPage(BasePage):
             command=self._on_anc_mode)
         self._anc_mode.pack(fill="x", padx=8, pady=8)
 
-        # Niveau NC
-        sec2 = Section(self, "Niveau NC")
+        # NC Level
+        sec2 = Section(self, "NC Level")
         sec2.pack(fill="x")
         c2 = sec2.content
         row = ctk.CTkFrame(c2, fg_color="transparent")
@@ -306,14 +306,14 @@ class ANCPage(BasePage):
         self._nc_label = ctk.CTkLabel(row, text="--", width=60, text_color=TEXT)
         self._nc_label.grid(row=0, column=1)
 
-        # ANC Adaptatif
-        sec3 = Section(self, "ANC Adaptatif")
+        # Adaptive ANC
+        sec3 = Section(self, "Adaptive ANC")
         sec3.pack(fill="x")
-        self._adaptive = ToggleRow(sec3.content, "ANC adaptatif", command=self._on_adaptive)
+        self._adaptive = ToggleRow(sec3.content, "Adaptive ANC", command=self._on_adaptive)
         self._adaptive.pack(fill="x")
 
-        # Mode Ambiant
-        sec4 = Section(self, "Mode Ambiant")
+        # Ambient Mode
+        sec4 = Section(self, "Ambient Mode")
         sec4.pack(fill="x")
         c4 = sec4.content
         self._ambient_mode = ctk.CTkSegmentedButton(
@@ -325,8 +325,8 @@ class ANCPage(BasePage):
             command=self._on_ambient_music)
         self._ambient_music.pack(fill="x", padx=8, pady=(0, 8))
 
-        # Bouton physique
-        sec5 = Section(self, "Bouton physique (cycles)")
+        # Physical button
+        sec5 = Section(self, "Physical Button (cycles)")
         sec5.pack(fill="x")
         c5 = sec5.content
         self._toggle_off = ctk.CTkCheckBox(c5, text="Off", command=self._on_toggle)
@@ -340,10 +340,10 @@ class ANCPage(BasePage):
         if not self.bt.connected:
             return
         self._loading = True
-        self._status("Lecture ANC...")
+        self._status("Reading ANC...")
         self.bt.run(tc.cmd_anc_get, callback=self._cb(self._on_anc_data))
         self.bt.run(tc.cmd_anc_level_get, callback=self._cb(self._on_level_data))
-        # Adaptive ANC (cmd 103) ne repond pas en GET sur EAH-AZ100
+        # Adaptive ANC (cmd 103) does not respond to GET on EAH-AZ100
         self.bt.run(tc.cmd_ambient_mode_get, callback=self._cb(self._on_ambient_data))
         self.bt.run(tc.cmd_outside_toggle_get, callback=self._cb(self._on_toggle_data))
 
@@ -381,13 +381,13 @@ class ANCPage(BasePage):
 
     def _on_anc_data(self, result, error):
         if error:
-            self._status(f"Erreur ANC: {error}")
+            self._status(f"ANC error: {error}")
             self._loading = False
             return
         mode_map = {0: "Off", 1: "NC", 2: "Ambient"}
         self._anc_mode.set(mode_map.get(result.get("mode", 0), "Off"))
         self._loading = False
-        self._status("ANC mis a jour")
+        self._status("ANC updated")
 
     def _on_level_data(self, result, error):
         if error:
@@ -427,7 +427,7 @@ class ANCPage(BasePage):
             self._status(f"ANC -> {value}...")
             self.bt.run(tc.cmd_anc_set, mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"ANC: {value}" if not e else f"Erreur: {e}")))
+                            f"ANC: {value}" if not e else f"Error: {e}")))
 
     def _on_nc_slider(self, value):
         if self._loading or not self.bt.connected:
@@ -440,19 +440,19 @@ class ANCPage(BasePage):
         if self._loading or not self.bt.connected:
             return
         level = int(self._nc_slider.get())
-        self._status(f"Niveau NC -> {level}...")
+        self._status(f"NC Level -> {level}...")
         self.bt.run(tc.cmd_anc_level_set, level,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Niveau NC: {r.get('label', '')}" if not e else f"Erreur: {e}")))
+                        f"NC Level: {r.get('label', '')}" if not e else f"Error: {e}")))
 
     def _on_adaptive(self):
         if self._loading or not self.bt.connected:
             return
         mode = "on" if self._adaptive.get() else "off"
-        self._status(f"Adaptatif -> {mode}...")
+        self._status(f"Adaptive -> {mode}...")
         self.bt.run(tc.generic_set, tc.GENERIC_CMDS["adaptive-anc"], mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Adaptatif: {mode}" if not e else f"Erreur: {e}")))
+                        f"Adaptive: {mode}" if not e else f"Error: {e}")))
 
     def _on_ambient_mode(self, value):
         if self._loading or not self.bt.connected:
@@ -460,10 +460,10 @@ class ANCPage(BasePage):
         mode_map = {"Transparent": "transparent", "Attention": "attention"}
         mode = mode_map.get(value)
         if mode:
-            self._status(f"Ambiant -> {value}...")
+            self._status(f"Ambient -> {value}...")
             self.bt.run(tc.cmd_ambient_mode_set, mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Ambiant: {value}" if not e else f"Erreur: {e}")))
+                            f"Ambient: {value}" if not e else f"Error: {e}")))
 
     def _on_ambient_music(self, value):
         if self._loading or not self.bt.connected:
@@ -473,10 +473,10 @@ class ANCPage(BasePage):
         if music:
             current = {"Transparent": "transparent", "Attention": "attention"}.get(
                 self._ambient_mode.get(), "transparent")
-            self._status(f"Musique ambiant -> {value}...")
+            self._status(f"Ambient music -> {value}...")
             self.bt.run(tc.cmd_ambient_mode_set, current, music,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Musique: {value}" if not e else f"Erreur: {e}")))
+                            f"Music: {value}" if not e else f"Error: {e}")))
 
     def _on_toggle(self):
         if self._loading or not self.bt.connected:
@@ -493,7 +493,7 @@ class ANCPage(BasePage):
         self._status(f"Toggle -> {', '.join(modes)}...")
         self.bt.run(tc.cmd_outside_toggle_set, modes,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Toggle: {', '.join(modes)}" if not e else f"Erreur: {e}")))
+                        f"Toggle: {', '.join(modes)}" if not e else f"Error: {e}")))
 
     def _iter_controls(self):
         return [self._anc_mode, self._nc_slider, self._adaptive.switch,
@@ -501,15 +501,15 @@ class ANCPage(BasePage):
                 self._toggle_off, self._toggle_nc, self._toggle_amb]
 
 
-# --- Page Audio ---
+# --- Audio Page ---
 
 class AudioPage(BasePage):
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
 
-        # Egaliseur
-        sec = Section(self, "Egaliseur")
+        # Equalizer
+        sec = Section(self, "Equalizer")
         sec.pack(fill="x")
         c = sec.content
         eq_values = list(EQ_LABELS.values())
@@ -519,16 +519,16 @@ class AudioPage(BasePage):
             command=self._on_eq)
         self._eq_menu.pack(fill="x", padx=8, pady=8)
 
-        # Audio Spatial + Head Tracking
-        sec2 = Section(self, "Audio Spatial")
+        # Spatial Audio + Head Tracking
+        sec2 = Section(self, "Spatial Audio")
         sec2.pack(fill="x")
-        self._spatial = ToggleRow(sec2.content, "Audio Spatial", command=self._on_spatial)
+        self._spatial = ToggleRow(sec2.content, "Spatial Audio", command=self._on_spatial)
         self._spatial.pack(fill="x")
         self._head_tracking = ToggleRow(sec2.content, "Head Tracking", command=self._on_head_tracking)
         self._head_tracking.pack(fill="x")
 
-        # Codec A2DP
-        sec3 = Section(self, "Codec prefere A2DP")
+        # A2DP Codec
+        sec3 = Section(self, "Preferred A2DP Codec")
         sec3.pack(fill="x")
         c3 = sec3.content
         codec_values = list(CODEC_LABELS.values())
@@ -539,20 +539,20 @@ class AudioPage(BasePage):
         self._codec_menu.pack(fill="x", padx=8, pady=8)
 
         # Buffer
-        sec4 = Section(self, "Buffer audio")
+        sec4 = Section(self, "Audio Buffer")
         sec4.pack(fill="x")
         self._buffer = ctk.CTkSegmentedButton(
-            sec4.content, values=["Auto", "Musique", "Video"],
+            sec4.content, values=["Auto", "Music", "Video"],
             command=self._on_buffer)
         self._buffer.pack(fill="x", padx=8, pady=8)
 
-        # Codec actuel
-        sec5 = Section(self, "Codec actuel")
+        # Current codec
+        sec5 = Section(self, "Current Codec")
         sec5.pack(fill="x")
         c5 = sec5.content
         self._codec_info = {}
-        for label_text, key in [("Codec", "codec"), ("Frequence", "sample_freq"),
-                                ("Canaux", "channel_mode"), ("Bitrate", "bitrate")]:
+        for label_text, key in [("Codec", "codec"), ("Frequency", "sample_freq"),
+                                ("Channels", "channel_mode"), ("Bitrate", "bitrate")]:
             row = ctk.CTkFrame(c5, fg_color="transparent")
             row.pack(fill="x", padx=8, pady=2)
             row.grid_columnconfigure(1, weight=1)
@@ -566,7 +566,7 @@ class AudioPage(BasePage):
         if not self.bt.connected:
             return
         self._loading = True
-        self._status("Lecture audio...")
+        self._status("Reading audio...")
         self.bt.run(tc.cmd_eq_get, callback=self._cb(self._on_eq_data))
         self.bt.run(tc.cmd_spatial_get, callback=self._cb(self._on_spatial_data))
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["a2dp"],
@@ -583,11 +583,11 @@ class AudioPage(BasePage):
                 self._spatial.set(data["spatial"].get("mode") == "on")
                 self._head_tracking.set(data["spatial"].get("head_tracking") == "on")
             if "buffer" in data:
-                buf_map = {"auto": "Auto", "music": "Musique", "video": "Video"}
+                buf_map = {"auto": "Auto", "music": "Music", "video": "Video"}
                 self._buffer.set(buf_map.get(data["buffer"].get("mode", "auto"), "Auto"))
         finally:
             self._loading = False
-        # EQ n'est pas dans le batch, GET via Airoha PEQ
+        # EQ is not in batch, GET via Airoha PEQ
         if self.bt.connected:
             self.bt.run(tc.cmd_eq_get, callback=self._cb(self._on_eq_data))
 
@@ -605,7 +605,7 @@ class AudioPage(BasePage):
         self._spatial.set(result.get("mode") == "on")
         self._head_tracking.set(result.get("head_tracking") == "on")
         self._loading = False
-        self._status("Audio mis a jour")
+        self._status("Audio updated")
 
     def _on_a2dp_data(self, result, error):
         if error:
@@ -616,7 +616,7 @@ class AudioPage(BasePage):
     def _on_buffer_data(self, result, error):
         if error:
             return
-        buf_map = {"auto": "Auto", "music": "Musique", "video": "Video"}
+        buf_map = {"auto": "Auto", "music": "Music", "video": "Video"}
         self._buffer.set(buf_map.get(result.get("label", "auto"), "Auto"))
 
     def _on_codec_info(self, result, error):
@@ -637,7 +637,7 @@ class AudioPage(BasePage):
             self._status(f"EQ -> {value}...")
             self.bt.run(tc.cmd_eq_set, mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"EQ: {value}" if not e else f"Erreur: {e}")))
+                            f"EQ: {value}" if not e else f"Error: {e}")))
 
     def _on_spatial(self):
         if self._loading or not self.bt.connected:
@@ -646,7 +646,7 @@ class AudioPage(BasePage):
         self._status(f"Spatial -> {mode}...")
         self.bt.run(tc.cmd_spatial_set, mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Spatial: {mode}" if not e else f"Erreur: {e}")))
+                        f"Spatial: {mode}" if not e else f"Error: {e}")))
 
     def _on_head_tracking(self):
         if self._loading or not self.bt.connected:
@@ -656,7 +656,7 @@ class AudioPage(BasePage):
         self._status(f"Head Tracking -> {ht}...")
         self.bt.run(tc.cmd_spatial_set, spatial, ht,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Head Tracking: {ht}" if not e else f"Erreur: {e}")))
+                        f"Head Tracking: {ht}" if not e else f"Error: {e}")))
 
     def _on_codec(self, value):
         if self._loading or not self.bt.connected:
@@ -667,25 +667,25 @@ class AudioPage(BasePage):
             self._status(f"Codec -> {value}...")
             self.bt.run(tc.generic_set, tc.GENERIC_CMDS["a2dp"], codec,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Codec: {value}" if not e else f"Erreur: {e}")))
+                            f"Codec: {value}" if not e else f"Error: {e}")))
 
     def _on_buffer(self, value):
         if self._loading or not self.bt.connected:
             return
-        buf_map = {"Auto": "auto", "Musique": "music", "Video": "video"}
+        buf_map = {"Auto": "auto", "Music": "music", "Video": "video"}
         mode = buf_map.get(value)
         if mode:
             self._status(f"Buffer -> {value}...")
             self.bt.run(tc.generic_set, tc.GENERIC_CMDS["buffer"], mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Buffer: {value}" if not e else f"Erreur: {e}")))
+                            f"Buffer: {value}" if not e else f"Error: {e}")))
 
     def _iter_controls(self):
         return [self._eq_menu, self._spatial.switch, self._head_tracking.switch,
                 self._codec_menu, self._buffer]
 
 
-# --- Page Connectivite ---
+# --- Connectivity Page ---
 
 class ConnectivityPage(BasePage):
     BATCH_COMPLETE = True
@@ -707,19 +707,19 @@ class ConnectivityPage(BasePage):
         self._le_audio = ToggleRow(sec2.content, "LE Audio", command=self._on_le_audio)
         self._le_audio.pack(fill="x")
 
-        # Bascule lecture
-        sec3 = Section(self, "Bascule lecture")
+        # Switch playback
+        sec3 = Section(self, "Playback Switch")
         sec3.pack(fill="x")
-        self._switch_playing = ToggleRow(sec3.content, "Bascule auto", command=self._on_switch_playing)
+        self._switch_playing = ToggleRow(sec3.content, "Auto switch", command=self._on_switch_playing)
         self._switch_playing.pack(fill="x")
 
-        # Appareils connectes
-        sec4 = Section(self, "Appareils connectes")
+        # Connected devices
+        sec4 = Section(self, "Connected Devices")
         sec4.pack(fill="x")
         c4 = sec4.content
         self._devices_text = ctk.CTkTextbox(c4, height=100, state="disabled")
         self._devices_text.pack(fill="x", padx=8, pady=4)
-        btn = ctk.CTkButton(c4, text="Rafraichir", command=self._refresh_devices, width=100)
+        btn = ctk.CTkButton(c4, text="Refresh", command=self._refresh_devices, width=100)
         btn.pack(pady=(0, 8))
         self._refresh_btn = btn
 
@@ -727,7 +727,7 @@ class ConnectivityPage(BasePage):
         if not self.bt.connected:
             return
         self._loading = True
-        self._status("Lecture connectivite...")
+        self._status("Reading connectivity...")
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["multipoint"],
                     callback=self._cb(self._on_multipoint_data))
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["le-audio"],
@@ -757,7 +757,7 @@ class ConnectivityPage(BasePage):
         mp_map = {"off": "Off", "on": "On", "triple": "Triple"}
         self._multipoint.set(mp_map.get(result.get("label", "off"), "Off"))
         self._loading = False
-        self._status("Connectivite mise a jour")
+        self._status("Connectivity updated")
 
     def _on_le_data(self, result, error):
         if error:
@@ -778,13 +778,13 @@ class ConnectivityPage(BasePage):
         self._devices_text.configure(state="normal")
         self._devices_text.delete("0.0", "end")
         if error:
-            self._devices_text.insert("0.0", f"Erreur: {error}")
+            self._devices_text.insert("0.0", f"Error: {error}")
         else:
             devices = result.get("devices", [])
             if devices:
                 self._devices_text.insert("0.0", "\n".join(devices))
             else:
-                self._devices_text.insert("0.0", "Aucun appareil")
+                self._devices_text.insert("0.0", "No devices")
         self._devices_text.configure(state="disabled")
 
     def _on_multipoint(self, value):
@@ -796,7 +796,7 @@ class ConnectivityPage(BasePage):
             self._status(f"Multipoint -> {value}...")
             self.bt.run(tc.generic_set, tc.GENERIC_CMDS["multipoint"], mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Multipoint: {value}" if not e else f"Erreur: {e}")))
+                            f"Multipoint: {value}" if not e else f"Error: {e}")))
 
     def _on_le_audio(self):
         if self._loading or not self.bt.connected:
@@ -805,23 +805,23 @@ class ConnectivityPage(BasePage):
         self._status(f"LE Audio -> {mode}...")
         self.bt.run(tc.generic_set, tc.GENERIC_CMDS["le-audio"], mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"LE Audio: {mode}" if not e else f"Erreur: {e}")))
+                        f"LE Audio: {mode}" if not e else f"Error: {e}")))
 
     def _on_switch_playing(self):
         if self._loading or not self.bt.connected:
             return
         mode = "on" if self._switch_playing.get() else "off"
-        self._status(f"Bascule -> {mode}...")
+        self._status(f"Switch -> {mode}...")
         self.bt.run(tc.generic_set, tc.GENERIC_CMDS["switch-playing"], mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Bascule: {mode}" if not e else f"Erreur: {e}")))
+                        f"Switch: {mode}" if not e else f"Error: {e}")))
 
     def _iter_controls(self):
         return [self._multipoint, self._le_audio.switch,
                 self._switch_playing.switch, self._refresh_btn]
 
 
-# --- Page Reglages ---
+# --- Settings Page ---
 
 class SettingsPage(BasePage):
 
@@ -831,30 +831,30 @@ class SettingsPage(BasePage):
         # LED
         sec = Section(self, "LED")
         sec.pack(fill="x")
-        self._led = ToggleRow(sec.content, "LED indicatrice", command=self._on_led)
+        self._led = ToggleRow(sec.content, "Indicator LED", command=self._on_led)
         self._led.pack(fill="x")
 
-        # Detection de port
-        sec2 = Section(self, "Detection de port")
+        # Wearing detection
+        sec2 = Section(self, "Wearing Detection")
         sec2.pack(fill="x")
         c2 = sec2.content
         self._wearing = ToggleRow(c2, "Detection", command=self._on_wearing)
         self._wearing.pack(fill="x")
-        self._wearing_music = ToggleRow(c2, "  Pause musique", command=self._on_wearing_sub)
+        self._wearing_music = ToggleRow(c2, "  Pause music", command=self._on_wearing_sub)
         self._wearing_music.pack(fill="x")
-        self._wearing_touch = ToggleRow(c2, "  Controle tactile", command=self._on_wearing_sub)
+        self._wearing_touch = ToggleRow(c2, "  Touch control", command=self._on_wearing_sub)
         self._wearing_touch.pack(fill="x")
-        self._wearing_replay = ToggleRow(c2, "  Reprise lecture", command=self._on_wearing_sub)
+        self._wearing_replay = ToggleRow(c2, "  Playback resume", command=self._on_wearing_sub)
         self._wearing_replay.pack(fill="x")
 
-        # Arret auto
-        sec3 = Section(self, "Arret automatique")
+        # Auto power off
+        sec3 = Section(self, "Auto Power Off")
         sec3.pack(fill="x")
         c3 = sec3.content
         row = ctk.CTkFrame(c3, fg_color="transparent")
         row.pack(fill="x", padx=8, pady=8)
         row.grid_columnconfigure(0, weight=1)
-        self._auto_off = ToggleRow(row, "Arret auto", command=self._on_auto_off)
+        self._auto_off = ToggleRow(row, "Auto off", command=self._on_auto_off)
         self._auto_off.grid(row=0, column=0, sticky="ew")
         self._auto_off_min = ctk.CTkOptionMenu(
             row, values=["5", "10", "30", "60"], width=80,
@@ -862,8 +862,8 @@ class SettingsPage(BasePage):
         self._auto_off_min.grid(row=0, column=1, padx=8)
         ctk.CTkLabel(row, text="min", text_color=TEXT_DIM).grid(row=0, column=2)
 
-        # Volume securise
-        sec4 = Section(self, "Volume securise")
+        # Safe volume
+        sec4 = Section(self, "Safe Volume")
         sec4.pack(fill="x")
         c4 = sec4.content
         row4 = ctk.CTkFrame(c4, fg_color="transparent")
@@ -876,8 +876,8 @@ class SettingsPage(BasePage):
         self._safe_vol_label = ctk.CTkLabel(row4, text="--", width=40, text_color=TEXT)
         self._safe_vol_label.grid(row=0, column=1)
 
-        # Langue
-        sec5 = Section(self, "Langue des annonces")
+        # Language
+        sec5 = Section(self, "Announcement Language")
         sec5.pack(fill="x")
         lang_values = list(LANGUAGE_LABELS.values())
         self._lang_var = ctk.StringVar(value="--")
@@ -886,18 +886,18 @@ class SettingsPage(BasePage):
             command=self._on_language)
         self._lang_menu.pack(fill="x", padx=8, pady=8)
 
-        # Sonnerie appel
-        sec6 = Section(self, "Appel")
+        # Ringtone during call
+        sec6 = Section(self, "Call")
         sec6.pack(fill="x")
-        self._ringtone = ToggleRow(sec6.content, "Sonnerie pendant appel", command=self._on_ringtone)
+        self._ringtone = ToggleRow(sec6.content, "Ringtone during call", command=self._on_ringtone)
         self._ringtone.pack(fill="x")
 
     def refresh(self):
         if not self.bt.connected:
             return
         self._loading = True
-        self._status("Lecture reglages...")
-        # LED (cmd 19) et Safe Volume (cmd 92) ne repondent pas en GET sur EAH-AZ100
+        self._status("Reading settings...")
+        # LED (cmd 19) and Safe Volume (cmd 92) do not respond to GET on EAH-AZ100
         self.bt.run(tc.cmd_wearing_get, callback=self._cb(self._on_wearing_data))
         self.bt.run(tc.cmd_auto_power_off_get, callback=self._cb(self._on_auto_off_data))
         self.bt.run(tc.cmd_lang_get, callback=self._cb(self._on_lang_data))
@@ -925,12 +925,12 @@ class SettingsPage(BasePage):
                 val = data["safe_volume"].get("value", 0)
                 self._safe_vol_slider.set(val)
                 self._safe_vol_label.configure(text=str(val))
-            # Language n'est pas dans le batch, GET via cmd 37
+            # Language is not in batch, GET via cmd 37
             if "ringtone_talking" in data:
                 self._ringtone.set(data["ringtone_talking"].get("mode") == "on")
         finally:
             self._loading = False
-        # Language n'est pas dans le batch, GET via cmd 37
+        # Language is not in batch, GET via cmd 37
         if self.bt.connected:
             self.bt.run(tc.cmd_lang_get, callback=self._cb(self._on_lang_data))
 
@@ -943,7 +943,7 @@ class SettingsPage(BasePage):
         self._wearing_touch.set(result.get("touch") == "on")
         self._wearing_replay.set(result.get("replay") == "on")
         self._loading = False
-        self._status("Reglages mis a jour")
+        self._status("Settings updated")
 
     def _on_auto_off_data(self, result, error):
         if error:
@@ -969,7 +969,7 @@ class SettingsPage(BasePage):
         mode = "on" if self._led.get() else "off"
         self.bt.run(tc.generic_set, tc.GENERIC_CMDS["led"], mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"LED: {mode}" if not e else f"Erreur: {e}")))
+                        f"LED: {mode}" if not e else f"Error: {e}")))
 
     def _on_wearing(self):
         if self._loading or not self.bt.connected:
@@ -977,7 +977,7 @@ class SettingsPage(BasePage):
         mode = "on" if self._wearing.get() else "off"
         self.bt.run(tc.cmd_wearing_set, mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Detection: {mode}" if not e else f"Erreur: {e}")))
+                        f"Detection: {mode}" if not e else f"Error: {e}")))
 
     def _on_wearing_sub(self):
         if self._loading or not self.bt.connected:
@@ -988,7 +988,7 @@ class SettingsPage(BasePage):
             "on" if self._wearing_touch.get() else "off",
             "on" if self._wearing_replay.get() else "off",
             callback=self._cb(lambda r, e: self._status(
-                "Detection mise a jour" if not e else f"Erreur: {e}")))
+                "Detection updated" if not e else f"Error: {e}")))
 
     def _on_auto_off(self):
         if self._loading or not self.bt.connected:
@@ -997,7 +997,7 @@ class SettingsPage(BasePage):
         mins = int(self._auto_off_min.get())
         self.bt.run(tc.cmd_auto_power_off_set, mode, mins,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Arret auto: {mode}" if not e else f"Erreur: {e}")))
+                        f"Auto off: {mode}" if not e else f"Error: {e}")))
 
     def _on_auto_off_min(self, value):
         if self._loading or not self.bt.connected:
@@ -1005,7 +1005,7 @@ class SettingsPage(BasePage):
         if self._auto_off.get():
             self.bt.run(tc.cmd_auto_power_off_set, "on", int(value),
                         callback=self._cb(lambda r, e: self._status(
-                            f"Arret auto: {value} min" if not e else f"Erreur: {e}")))
+                            f"Auto off: {value} min" if not e else f"Error: {e}")))
 
     def _on_safe_vol_slide(self, value):
         if self._loading:
@@ -1018,7 +1018,7 @@ class SettingsPage(BasePage):
         val = int(self._safe_vol_slider.get())
         self.bt.run(tc.generic_set, tc.GENERIC_CMDS["safe-volume"], val,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Volume securise: {val}" if not e else f"Erreur: {e}")))
+                        f"Safe volume: {val}" if not e else f"Error: {e}")))
 
     def _on_language(self, value):
         if self._loading or not self.bt.connected:
@@ -1026,10 +1026,10 @@ class SettingsPage(BasePage):
         rev = {v: k for k, v in LANGUAGE_LABELS.items()}
         lang = rev.get(value)
         if lang:
-            self._status(f"Langue -> {value}...")
+            self._status(f"Language -> {value}...")
             self.bt.run(tc.cmd_lang_set, lang,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Langue: {value}" if not e else f"Erreur: {e}")))
+                            f"Language: {value}" if not e else f"Error: {e}")))
 
     def _on_ringtone(self):
         if self._loading or not self.bt.connected:
@@ -1037,7 +1037,7 @@ class SettingsPage(BasePage):
         mode = "on" if self._ringtone.get() else "off"
         self.bt.run(tc.generic_set, tc.GENERIC_CMDS["ringtone-talking"], mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Sonnerie: {mode}" if not e else f"Erreur: {e}")))
+                        f"Ringtone: {mode}" if not e else f"Error: {e}")))
 
     def _iter_controls(self):
         return [self._led.switch, self._wearing.switch,
@@ -1047,39 +1047,39 @@ class SettingsPage(BasePage):
                 self._lang_menu, self._ringtone.switch]
 
 
-# --- Page Voix ---
+# --- Voice Page ---
 
 class VoicePage(BasePage):
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
 
-        # Assistant vocal
-        sec = Section(self, "Assistant vocal")
+        # Voice assistant
+        sec = Section(self, "Voice Assistant")
         sec.pack(fill="x")
         self._assistant = ctk.CTkSegmentedButton(
             sec.content, values=["Google", "Alexa", "Off"],
             command=self._on_assistant)
         self._assistant.pack(fill="x", padx=8, pady=8)
 
-        # Reduction de bruit appel
-        sec2 = Section(self, "Reduction bruit (appel)")
+        # Call noise reduction
+        sec2 = Section(self, "Noise Reduction (Call)")
         sec2.pack(fill="x")
         self._noise_red = ctk.CTkSegmentedButton(
-            sec2.content, values=["Normal", "Eleve"],
+            sec2.content, values=["Normal", "High"],
             command=self._on_noise_red)
         self._noise_red.pack(fill="x", padx=8, pady=8)
 
-        # Annonce changement ANC
-        sec3 = Section(self, "Annonce changement ANC")
+        # ANC change announcement
+        sec3 = Section(self, "ANC Change Announcement")
         sec3.pack(fill="x")
         self._vp_outside = ctk.CTkSegmentedButton(
-            sec3.content, values=["Tonalite", "Voix"],
+            sec3.content, values=["Tone", "Voice"],
             command=self._on_vp_outside)
         self._vp_outside.pack(fill="x", padx=8, pady=8)
 
-        # Annonce connexion
-        sec4 = Section(self, "Annonce de connexion")
+        # Connection announcement
+        sec4 = Section(self, "Connection Announcement")
         sec4.pack(fill="x")
         vp_values = [f"{i}: {tc.VP_CONNECTED_MODES[i]}" for i in range(8)]
         self._vp_connected_var = ctk.StringVar(value=vp_values[0])
@@ -1088,8 +1088,8 @@ class VoicePage(BasePage):
             command=self._on_vp_connected)
         self._vp_connected.pack(fill="x", padx=8, pady=8)
 
-        # Volume annonces
-        sec5 = Section(self, "Volume des annonces")
+        # Announcement volume
+        sec5 = Section(self, "Announcement Volume")
         sec5.pack(fill="x")
         c5 = sec5.content
         row = ctk.CTkFrame(c5, fg_color="transparent")
@@ -1112,14 +1112,14 @@ class VoicePage(BasePage):
         self._jmv = ToggleRow(row6, "Just My Voice", command=self._on_jmv)
         self._jmv.grid(row=0, column=0, sticky="ew")
         self._jmv_start_btn = ctk.CTkButton(
-            row6, text="Demarrer", width=80, command=self._on_jmv_start)
+            row6, text="Start", width=80, command=self._on_jmv_start)
         self._jmv_start_btn.grid(row=0, column=1, padx=8)
 
     def refresh(self):
         if not self.bt.connected:
             return
         self._loading = True
-        self._status("Lecture voix...")
+        self._status("Reading voice...")
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["assistant"],
                     callback=self._cb(self._on_assistant_data))
         self.bt.run(tc.generic_get, tc.GENERIC_CMDS["noise-reduction"],
@@ -1135,7 +1135,7 @@ class VoicePage(BasePage):
                 a_map = {"google": "Google", "alexa": "Alexa", "off": "Off", "unset": "Off"}
                 self._assistant.set(a_map.get(data["assistant"].get("mode", "off"), "Off"))
             if "noise_reduction" in data:
-                nr_map = {"normal": "Normal", "high": "Eleve"}
+                nr_map = {"normal": "Normal", "high": "High"}
                 self._noise_red.set(nr_map.get(
                     data["noise_reduction"].get("mode", "normal"), "Normal"))
             if "jmv" in data:
@@ -1150,12 +1150,12 @@ class VoicePage(BasePage):
         a_map = {"google": "Google", "alexa": "Alexa", "off": "Off", "unset": "Off"}
         self._assistant.set(a_map.get(result.get("label", "off"), "Off"))
         self._loading = False
-        self._status("Voix mis a jour")
+        self._status("Voice updated")
 
     def _on_noise_data(self, result, error):
         if error:
             return
-        nr_map = {"normal": "Normal", "high": "Eleve"}
+        nr_map = {"normal": "Normal", "high": "High"}
         self._noise_red.set(nr_map.get(result.get("label", "normal"), "Normal"))
 
     def _on_jmv_data(self, result, error):
@@ -1172,38 +1172,38 @@ class VoicePage(BasePage):
             self._status(f"Assistant -> {value}...")
             self.bt.run(tc.generic_set, tc.GENERIC_CMDS["assistant"], mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Assistant: {value}" if not e else f"Erreur: {e}")))
+                            f"Assistant: {value}" if not e else f"Error: {e}")))
 
     def _on_noise_red(self, value):
         if self._loading or not self.bt.connected:
             return
-        nr_map = {"Normal": "normal", "Eleve": "high"}
+        nr_map = {"Normal": "normal", "High": "high"}
         mode = nr_map.get(value)
         if mode:
-            self._status(f"Reduction bruit -> {value}...")
+            self._status(f"Noise reduction -> {value}...")
             self.bt.run(tc.generic_set, tc.GENERIC_CMDS["noise-reduction"], mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Reduction bruit: {value}" if not e else f"Erreur: {e}")))
+                            f"Noise reduction: {value}" if not e else f"Error: {e}")))
 
     def _on_vp_outside(self, value):
         if self._loading or not self.bt.connected:
             return
-        vp_map = {"Tonalite": "tone", "Voix": "voice"}
+        vp_map = {"Tone": "tone", "Voice": "voice"}
         mode = vp_map.get(value)
         if mode:
-            self._status(f"Annonce ANC -> {value}...")
+            self._status(f"ANC announcement -> {value}...")
             self.bt.run(tc.cmd_vp_outside_set, mode,
                         callback=self._cb(lambda r, e: self._status(
-                            f"Annonce ANC: {value}" if not e else f"Erreur: {e}")))
+                            f"ANC announcement: {value}" if not e else f"Error: {e}")))
 
     def _on_vp_connected(self, value):
         if self._loading or not self.bt.connected:
             return
         idx = int(value.split(":")[0])
-        self._status(f"Annonce connexion -> {idx}...")
+        self._status(f"Connection announcement -> {idx}...")
         self.bt.run(tc.cmd_vp_connected_set, idx,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Annonce connexion: {idx}" if not e else f"Erreur: {e}")))
+                        f"Connection announcement: {idx}" if not e else f"Error: {e}")))
 
     def _on_vp_vol_slide(self, value):
         if self._loading:
@@ -1216,7 +1216,7 @@ class VoicePage(BasePage):
         vol = int(self._vp_vol_slider.get())
         self.bt.run(tc.cmd_vp_volume_set, vol,
                     callback=self._cb(lambda r, e: self._status(
-                        f"Volume annonces: {vol}" if not e else f"Erreur: {e}")))
+                        f"Announcement volume: {vol}" if not e else f"Error: {e}")))
 
     def _on_jmv(self):
         if self._loading or not self.bt.connected:
@@ -1224,7 +1224,7 @@ class VoicePage(BasePage):
         mode = "on" if self._jmv.get() else "off"
         self.bt.run(tc.generic_set, tc.GENERIC_CMDS["jmv"], mode,
                     callback=self._cb(lambda r, e: self._status(
-                        f"JMV: {mode}" if not e else f"Erreur: {e}")))
+                        f"JMV: {mode}" if not e else f"Error: {e}")))
 
     def _on_jmv_start(self):
         if not self.bt.connected:
@@ -1232,7 +1232,7 @@ class VoicePage(BasePage):
         self._status("JMV calibration...")
         self.bt.run(tc.cmd_jmv_start,
                     callback=self._cb(lambda r, e: self._status(
-                        "JMV calibration OK" if not e else f"Erreur: {e}")))
+                        "JMV calibration OK" if not e else f"Error: {e}")))
 
     def _iter_controls(self):
         return [self._assistant, self._noise_red, self._vp_outside,
@@ -1240,7 +1240,7 @@ class VoicePage(BasePage):
                 self._jmv.switch, self._jmv_start_btn]
 
 
-# --- Page Infos ---
+# --- Info Page ---
 
 class InfoPage(BasePage):
 
@@ -1263,43 +1263,43 @@ class InfoPage(BasePage):
             lbl.grid(row=0, column=1, sticky="e")
             self._fw_labels[key] = lbl
 
-        # Couleur
-        sec2 = Section(self, "Appareil")
+        # Device
+        sec2 = Section(self, "Device")
         sec2.pack(fill="x")
         c2 = sec2.content
         row2 = ctk.CTkFrame(c2, fg_color="transparent")
         row2.pack(fill="x", padx=8, pady=4)
         row2.grid_columnconfigure(1, weight=1)
-        ctk.CTkLabel(row2, text="Couleur", text_color=TEXT_DIM).grid(
+        ctk.CTkLabel(row2, text="Color", text_color=TEXT_DIM).grid(
             row=0, column=0, sticky="w")
         self._color_label = ctk.CTkLabel(row2, text="--", text_color=TEXT)
         self._color_label.grid(row=0, column=1, sticky="e")
 
-        # Status complet
-        sec3 = Section(self, "Status complet (JSON)")
+        # Full status
+        sec3 = Section(self, "Full Status (JSON)")
         sec3.pack(fill="x")
         self._status_text = ctk.CTkTextbox(sec3.content, height=300, state="disabled")
         self._status_text.pack(fill="both", padx=8, pady=8, expand=True)
 
-        btn = ctk.CTkButton(self, text="Rafraichir", command=self.refresh, width=120)
+        btn = ctk.CTkButton(self, text="Refresh", command=self.refresh, width=120)
         btn.pack(pady=12)
         self._refresh_btn = btn
 
     def refresh(self):
         if not self.bt.connected:
             return
-        self._status("Lecture infos...")
+        self._status("Reading info...")
         self.bt.run(tc.cmd_firmware_info_get, callback=self._cb(self._on_firmware))
         self.bt.run(tc.cmd_color_get, callback=self._cb(self._on_color))
         self.bt.run(tc.cmd_status_batch, callback=self._cb(self._on_status))
 
     def _on_firmware(self, result, error):
         if error:
-            self._status(f"Erreur firmware: {error}")
+            self._status(f"Firmware error: {error}")
             return
         for key, lbl in self._fw_labels.items():
             lbl.configure(text=result.get(key, "--"))
-        self._status("Infos mises a jour")
+        self._status("Info updated")
 
     def _on_color(self, result, error):
         if error:
@@ -1310,7 +1310,7 @@ class InfoPage(BasePage):
         self._status_text.configure(state="normal")
         self._status_text.delete("0.0", "end")
         if error:
-            self._status_text.insert("0.0", f"Erreur: {error}")
+            self._status_text.insert("0.0", f"Error: {error}")
         else:
             self._status_text.insert("0.0", json.dumps(result, indent=2, ensure_ascii=False))
         self._status_text.configure(state="disabled")
@@ -1319,34 +1319,34 @@ class InfoPage(BasePage):
         return [self._refresh_btn]
 
 
-# --- Page Outils ---
+# --- Tools Page ---
 
 class ToolsPage(BasePage):
 
     def __init__(self, parent, app):
         super().__init__(parent, app)
 
-        # Localiser
-        sec = Section(self, "Localiser les ecouteurs")
+        # Find earbuds
+        sec = Section(self, "Find Earbuds")
         sec.pack(fill="x")
         c = sec.content
-        self._blink_cb = ctk.CTkCheckBox(c, text="Clignotement")
+        self._blink_cb = ctk.CTkCheckBox(c, text="Blink")
         self._blink_cb.pack(anchor="w", padx=8, pady=2)
-        self._ring_cb = ctk.CTkCheckBox(c, text="Sonnerie")
+        self._ring_cb = ctk.CTkCheckBox(c, text="Ring")
         self._ring_cb.pack(anchor="w", padx=8, pady=2)
         self._find_target = ctk.CTkSegmentedButton(
-            c, values=["Agent", "Partner", "Les deux"])
-        self._find_target.set("Les deux")
+            c, values=["Agent", "Partner", "Both"])
+        self._find_target.set("Both")
         self._find_target.pack(fill="x", padx=8, pady=4)
         self._find_btn = ctk.CTkButton(
-            c, text="Localiser", command=self._on_find)
+            c, text="Find", command=self._on_find)
         self._find_btn.pack(fill="x", padx=8, pady=(4, 8))
 
-        # Eteindre
-        sec2 = Section(self, "Alimentation")
+        # Power off
+        sec2 = Section(self, "Power")
         sec2.pack(fill="x")
         self._power_btn = ctk.CTkButton(
-            sec2.content, text="Eteindre les ecouteurs",
+            sec2.content, text="Power off earbuds",
             fg_color=RED, hover_color="#c0392b",
             command=self._on_power_off)
         self._power_btn.pack(fill="x", padx=8, pady=8)
@@ -1356,25 +1356,25 @@ class ToolsPage(BasePage):
             return
         blink = bool(self._blink_cb.get())
         ring = bool(self._ring_cb.get())
-        target_map = {"Agent": "agent", "Partner": "partner", "Les deux": "both"}
+        target_map = {"Agent": "agent", "Partner": "partner", "Both": "both"}
         target = target_map.get(self._find_target.get(), "both")
-        self._status("Localisation...")
+        self._status("Locating...")
         self.bt.run(tc.cmd_find_me, blink, ring, target,
                     callback=self._cb(lambda r, e: self._status(
-                        "Localisation envoyee" if not e else f"Erreur: {e}")))
+                        "Location sent" if not e else f"Error: {e}")))
 
     def _on_power_off(self):
         if not self.bt.connected:
             return
         dialog = ctk.CTkInputDialog(
-            text="Tapez 'oui' pour confirmer l'extinction",
-            title="Confirmer extinction")
+            text="Type 'yes' to confirm power off",
+            title="Confirm Power Off")
         result = dialog.get_input()
-        if result and result.strip().lower() == "oui":
-            self._status("Extinction...")
+        if result and result.strip().lower() == "yes":
+            self._status("Powering off...")
             self.bt.run(tc.cmd_power_off,
                         callback=self._cb(lambda r, e: self._status(
-                            "Ecouteurs eteints" if not e else f"Erreur: {e}")))
+                            "Earbuds powered off" if not e else f"Error: {e}")))
 
     def _iter_controls(self):
         return [self._blink_cb, self._ring_cb, self._find_target,
@@ -1382,7 +1382,7 @@ class ToolsPage(BasePage):
 
 
 # ---------------------------------------------------------------------------
-#  Application principale
+#  Main application
 # ---------------------------------------------------------------------------
 
 class App(ctk.CTk):
@@ -1426,10 +1426,10 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=14))
         self._status_dot.pack(side="left", padx=(0, 4))
         self._conn_label = ctk.CTkLabel(
-            right_frame, text="Non connecte", text_color=TEXT_DIM)
+            right_frame, text="Disconnected", text_color=TEXT_DIM)
         self._conn_label.pack(side="left", padx=(0, 8))
         self._conn_btn = ctk.CTkButton(
-            right_frame, text="Connecter", width=100,
+            right_frame, text="Connect", width=100,
             command=self._toggle_connection)
         self._conn_btn.pack(side="left")
 
@@ -1471,7 +1471,7 @@ class App(ctk.CTk):
 
         # --- Status bar ---
         self._status_bar = ctk.CTkLabel(
-            self, text="Pret", height=24, anchor="w",
+            self, text="Ready", height=24, anchor="w",
             text_color=TEXT_DIM, font=ctk.CTkFont(size=11))
         self._status_bar.grid(row=2, column=0, columnspan=2, sticky="ew", padx=8)
 
@@ -1508,17 +1508,17 @@ class App(ctk.CTk):
             self.bt.disconnect()
             self._on_disconnected()
         else:
-            self._conn_btn.configure(state="disabled", text="Recherche...")
-            self.set_status("Recherche des ecouteurs Technics...")
+            self._conn_btn.configure(state="disabled", text="Searching...")
+            self.set_status("Searching for Technics earbuds...")
 
             def _discover_and_connect():
                 address = tc.discover_device()
                 if not address:
                     self.after(0, lambda: self._on_connect_result(
-                        False, Exception("Aucun ecouteur Technics detecte")))
+                        False, Exception("No Technics earbuds found")))
                     return
-                self.after(0, lambda: self.set_status(f"Connexion a {address}..."))
-                self.after(0, lambda: self._conn_btn.configure(text="Connexion..."))
+                self.after(0, lambda: self.set_status(f"Connecting to {address}..."))
+                self.after(0, lambda: self._conn_btn.configure(text="Connecting..."))
                 self.bt.connect(
                     address, tc.RFCOMM_CHANNEL,
                     callback=lambda ok, err: self.after(0, lambda: self._on_connect_result(ok, err)))
@@ -1530,39 +1530,39 @@ class App(ctk.CTk):
         self._conn_btn.configure(state="normal")
         if ok:
             self._status_dot.configure(text_color=GREEN)
-            self._conn_label.configure(text="Connecte", text_color=GREEN)
-            self._conn_btn.configure(text="Deconnecter")
-            self.set_status("Connecte - chargement des donnees...")
+            self._conn_label.configure(text="Connected", text_color=GREEN)
+            self._conn_btn.configure(text="Disconnect")
+            self.set_status("Connected - loading data...")
             self.bt.run(tc.cmd_status_batch,
                         callback=lambda r, e: self.after(0, lambda: self._on_batch(r, e)))
         else:
             self._status_dot.configure(text_color=RED)
-            self._conn_label.configure(text="Non connecte", text_color=TEXT_DIM)
-            self._conn_btn.configure(text="Connecter")
-            self.set_status(f"Echec connexion: {error}")
+            self._conn_label.configure(text="Disconnected", text_color=TEXT_DIM)
+            self._conn_btn.configure(text="Connect")
+            self.set_status(f"Connection failed: {error}")
 
     def _on_batch(self, result, error):
         if error:
-            self.set_status(f"Erreur batch: {error}")
+            self.set_status(f"Batch error: {error}")
             if self._current_page:
                 self._pages[self._current_page].refresh()
             return
         self._batch_data = result
         for page in self._pages.values():
             page.populate_from_batch(result)
-        # Refresh seulement la page active si elle a des donnees hors batch
+        # Only refresh the active page if it has data outside the batch
         if self._current_page:
             page = self._pages[self._current_page]
             if not page.BATCH_COMPLETE:
                 page.refresh()
-        self.set_status("Donnees chargees")
+        self.set_status("Data loaded")
 
     def _on_disconnected(self):
         self._status_dot.configure(text_color=RED)
-        self._conn_label.configure(text="Non connecte", text_color=TEXT_DIM)
-        self._conn_btn.configure(text="Connecter")
+        self._conn_label.configure(text="Disconnected", text_color=TEXT_DIM)
+        self._conn_btn.configure(text="Connect")
         self._batch_data = {}
-        self.set_status("Deconnecte")
+        self.set_status("Disconnected")
 
     def set_status(self, msg: str):
         self._status_bar.configure(text=msg)

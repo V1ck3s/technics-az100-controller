@@ -3,10 +3,10 @@
 # dependencies = ["pyinstaller>=6.0", "customtkinter>=5.2"]
 # ///
 """
-Build technics_gui.py en executable Windows (.exe).
+Build technics_gui.py as a Windows executable (.exe).
 
-Usage : uv run build_gui.py
-Produit : dist/technics_gui.exe
+Usage:  uv run build_gui.py
+Output: dist/technics_gui.exe
 """
 
 import os
@@ -23,7 +23,7 @@ def main():
     ctk_path = Path(customtkinter.__file__).parent
 
     if not script.exists():
-        print(f"Erreur: {script} introuvable", file=sys.stderr)
+        print(f"Error: {script} not found", file=sys.stderr)
         sys.exit(1)
 
     cmd = [
@@ -43,7 +43,7 @@ def main():
         exe = root / "dist" / "technics_gui.exe"
         print(f"\nBuild OK: {exe}")
     else:
-        print("\nBuild echoue", file=sys.stderr)
+        print("\nBuild failed", file=sys.stderr)
         sys.exit(1)
 
 

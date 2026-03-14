@@ -3,10 +3,10 @@
 # dependencies = []
 # ///
 """
-Technics EAH-AZ100 - Controle complet via Bluetooth RFCOMM (protocole RACE)
+Technics EAH-AZ100 - Full control via Bluetooth RFCOMM (RACE protocol)
 
-Gere ~30 commandes GET/SET : ANC, EQ, spatial audio, batterie, codec,
-multipoint, LED, wearing detection, assistant vocal, etc.
+Handles ~30 GET/SET commands: ANC, EQ, spatial audio, battery, codec,
+multipoint, LED, wearing detection, voice assistant, etc.
 """
 
 import argparse
@@ -18,7 +18,7 @@ import time
 import winreg
 
 # ---------------------------------------------------------------------------
-#  Constantes
+#  Constants
 # ---------------------------------------------------------------------------
 
 RFCOMM_CHANNEL = 21
@@ -65,7 +65,7 @@ def discover_device() -> str | None:
     return None
 
 # ---------------------------------------------------------------------------
-#  Tables de mapping  nom <-> valeur
+#  Mapping tables  name <-> value
 # ---------------------------------------------------------------------------
 
 ANC_MODES = {"off": 0, "nc": 1, "ambient": 2}
@@ -147,7 +147,7 @@ NC_ADJUST_DB[0] = None  # default
 NC_ADJUST_DB_REV = {db: v for v, db in NC_ADJUST_DB.items() if db is not None}
 
 # ---------------------------------------------------------------------------
-#  Registre de commandes generiques (GET/SET 1 octet)
+#  Generic command registry (GET/SET 1 byte)
 # ---------------------------------------------------------------------------
 
 class CmdDef:
@@ -167,7 +167,7 @@ GENERIC_CMDS: dict[str, CmdDef] = {}
 def _reg(name, get_id, set_id, field, values, values_rev):
     GENERIC_CMDS[name] = CmdDef(name, get_id, set_id, field, values, values_rev)
 
-# EQ utilise les commandes Airoha PEQ (0x0901/0x0900), pas les cmds Panasonic 12/13
+# EQ uses Airoha PEQ commands (0x0901/0x0900), not Panasonic cmds 12/13
 _reg("led",              19, 20, "mode",             ONOFF,                 ONOFF_REV)
 _reg("multipoint",       50, 51, "mode",             MULTIPOINT_MODES,      MULTIPOINT_MODES_REV)
 _reg("adaptive-anc",    103,104, "mode",             ONOFF,                 ONOFF_REV)
@@ -177,33 +177,33 @@ _reg("buffer",           58, 59, "mode",             BUFFER_MODES,          BUFF
 _reg("switch-playing",   85, 86, "mode",             ONOFF,                 ONOFF_REV)
 _reg("ringtone-talking", 87, 88, "mode",             ONOFF,                 ONOFF_REV)
 _reg("assistant",         8,  9, "mode",             ASSISTANT_MODES,       ASSISTANT_MODES_REV)
-# Language utilise cmd 37 (getLangRev) pour GET, cmd 5 pour SET
+# Language uses cmd 37 (getLangRev) for GET, cmd 5 for SET
 _reg("safe-volume",      92, 93, "value",            None,                  None)
 _reg("jmv",              46, 45, "mode",             JMV_MODES,             JMV_MODES_REV)
 _reg("a2dp",             16, 17, "codec",            A2DP_CODECS,           A2DP_CODECS_REV)
 
 # ---------------------------------------------------------------------------
-#  Couche RACE
+#  RACE layer
 # ---------------------------------------------------------------------------
 
 def build_race_packet(cmd_id: int, payload: bytes = b"") -> bytes:
-    """Construit un paquet RACE (head=0x05, type=0x5A, little-endian)."""
+    """Build a RACE packet (head=0x05, type=0x5A, little-endian)."""
     length = 2 + len(payload)
     header = struct.pack("<BBHH", 0x05, 0x5A, length, cmd_id)
     return header + payload
 
 
 def parse_race_response(data: bytes) -> tuple[int, int, bytes]:
-    """Parse une reponse RACE. Retourne (cmd_id, status, payload).
+    """Parse a RACE response. Returns (cmd_id, status, payload).
 
-    Accepte les reponses (0x5B) et les indications (0x5D), les deux
-    contenant des donnees valides du peripherique.
+    Accepts responses (0x5B) and indications (0x5D), both
+    containing valid data from the device.
     """
     if len(data) < 6:
-        raise ValueError(f"Reponse trop courte: {len(data)} octets")
+        raise ValueError(f"Response too short: {len(data)} bytes")
     head, ptype, length, cmd_id = struct.unpack("<BBHH", data[:6])
     if ptype not in (0x5B, 0x5D):
-        raise ValueError(f"Type de reponse inattendu: 0x{ptype:02X}")
+        raise ValueError(f"Unexpected response type: 0x{ptype:02X}")
     payload = data[6:]
     status = payload[0] if payload else -1
     rest = payload[1:] if len(payload) > 1 else b""
@@ -211,7 +211,7 @@ def parse_race_response(data: bytes) -> tuple[int, int, bytes]:
 
 
 def bt_connect(address: str, channel: int = RFCOMM_CHANNEL) -> socket.socket:
-    """Ouvre une connexion RFCOMM vers les ecouteurs."""
+    """Open an RFCOMM connection to the earbuds."""
     sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
     sock.settimeout(5)
     sock.connect((address, channel))
@@ -221,12 +221,12 @@ def bt_connect(address: str, channel: int = RFCOMM_CHANNEL) -> socket.socket:
 def send_recv(sock: socket.socket, data: bytes, timeout: float = 3,
               expected_cmd: int | None = None,
               expected_type: int | None = None) -> bytes:
-    """Envoie des donnees et attend la reponse.
+    """Send data and wait for the response.
 
-    Parse le header RACE pour determiner la taille attendue et retourner
-    des que le paquet complet est recu (reponse 0x5B ou indication 0x5D).
-    Si expected_cmd est specifie, ignore les paquets dont le cmd_id ne correspond pas.
-    Si expected_type est specifie (0x5B ou 0x5D), ignore les paquets d'un autre type.
+    Parses the RACE header to determine expected size and returns
+    as soon as the complete packet is received (response 0x5B or indication 0x5D).
+    If expected_cmd is specified, ignores packets with non-matching cmd_id.
+    If expected_type is specified (0x5B or 0x5D), ignores packets of another type.
     """
     sock.send(data)
     sock.settimeout(timeout)
@@ -251,22 +251,22 @@ def send_recv(sock: socket.socket, data: bytes, timeout: float = 3,
             del buf[:pkt_len]
             if pkt[1] in (0x5B, 0x5D):
                 if expected_type is not None and pkt[1] != expected_type:
-                    continue  # ignorer les paquets du mauvais type
+                    continue  # ignore wrong type packets
                 if expected_cmd is not None and len(pkt) >= 6:
                     resp_cmd = struct.unpack("<H", pkt[4:6])[0]
                     if resp_cmd != expected_cmd:
-                        continue  # ignorer les paquets non sollicites
+                        continue  # ignore unsolicited packets
                 return pkt
     if not buf:
-        raise TimeoutError("Pas de reponse des ecouteurs")
+        raise TimeoutError("No response from earbuds")
     return bytes(buf)
 
 # ---------------------------------------------------------------------------
-#  Helpers generiques
+#  Generic helpers
 # ---------------------------------------------------------------------------
 
 def race_get(sock: socket.socket, cmd_id: int) -> bytes:
-    """GET generique, retourne le payload (sans le status byte)."""
+    """Generic GET, returns the payload (without the status byte)."""
     pkt = build_race_packet(cmd_id)
     resp = send_recv(sock, pkt, expected_cmd=cmd_id)
     _, status, rest = parse_race_response(resp)
@@ -276,7 +276,7 @@ def race_get(sock: socket.socket, cmd_id: int) -> bytes:
 
 
 def race_set(sock: socket.socket, cmd_id: int, payload: bytes) -> int:
-    """SET generique, retourne le status."""
+    """Generic SET, returns the status."""
     pkt = build_race_packet(cmd_id, payload)
     resp = send_recv(sock, pkt, expected_cmd=cmd_id)
     _, status, _ = parse_race_response(resp)
@@ -285,28 +285,28 @@ def race_set(sock: socket.socket, cmd_id: int, payload: bytes) -> int:
 
 def check_status(status: int, context: str = ""):
     if status != 0:
-        raise RuntimeError(f"Echec{' ' + context if context else ''}: status={status}")
+        raise RuntimeError(f"Failed{' ' + context if context else ''}: status={status}")
 
 # ---------------------------------------------------------------------------
-#  Commandes generiques GET/SET
+#  Generic GET/SET commands
 # ---------------------------------------------------------------------------
 
 def generic_get(sock: socket.socket, cmd: CmdDef) -> dict:
-    """GET pour une commande du registre generique."""
+    """GET for a command from the generic registry."""
     data = race_get(sock, cmd.get_id)
     raw = data[0] if data else 0
     if cmd.values_rev:
-        label = cmd.values_rev.get(raw, f"inconnu({raw})")
+        label = cmd.values_rev.get(raw, f"unknown({raw})")
     else:
         label = str(raw)
     return {cmd.field: raw, "label": label}
 
 
 def generic_set(sock: socket.socket, cmd: CmdDef, value) -> dict:
-    """SET pour une commande du registre generique."""
+    """SET for a command from the generic registry."""
     if cmd.values and isinstance(value, str):
         if value not in cmd.values:
-            raise ValueError(f"Valeur invalide '{value}'. Choix: {list(cmd.values.keys())}")
+            raise ValueError(f"Invalid value '{value}'. Choices: {list(cmd.values.keys())}")
         raw = cmd.values[value]
     else:
         raw = int(value)
@@ -315,7 +315,7 @@ def generic_set(sock: socket.socket, cmd: CmdDef, value) -> dict:
     return generic_get(sock, cmd)
 
 # ---------------------------------------------------------------------------
-#  Commandes specialisees
+#  Specialized commands
 # ---------------------------------------------------------------------------
 
 # --- EQ / Sound Mode (Airoha PEQ, cmd 0x0901/0x0900) ---
@@ -325,7 +325,7 @@ AIROHA_PEQ_SET = 0x0900
 
 
 def cmd_eq_get(sock: socket.socket) -> dict:
-    """GET EQ via commande Airoha PEQ (Race ID 0x0901)."""
+    """GET EQ via Airoha PEQ command (Race ID 0x0901)."""
     module_id = struct.pack("<H", 0x0000)
     pkt = build_race_packet(AIROHA_PEQ_GET, module_id)
     resp = send_recv(sock, pkt, expected_cmd=AIROHA_PEQ_GET)
@@ -334,13 +334,13 @@ def cmd_eq_get(sock: socket.socket) -> dict:
         raise RuntimeError(f"EQ GET: status={status}")
     # rest = [module_id_lo, module_id_hi, eq_idx]
     eq_idx = rest[2] if len(rest) >= 3 else 0
-    return {"sound_mode": EQ_MODES_REV.get(eq_idx, f"inconnu({eq_idx})")}
+    return {"sound_mode": EQ_MODES_REV.get(eq_idx, f"unknown({eq_idx})")}
 
 
 def cmd_eq_set(sock: socket.socket, mode_name: str) -> dict:
-    """SET EQ via commande Airoha PEQ (Race ID 0x0900)."""
+    """SET EQ via Airoha PEQ command (Race ID 0x0900)."""
     if mode_name not in EQ_MODES:
-        raise ValueError(f"Mode EQ invalide '{mode_name}'. Choix: {list(EQ_MODES.keys())}")
+        raise ValueError(f"Invalid EQ mode '{mode_name}'. Choices: {list(EQ_MODES.keys())}")
     eq_idx = EQ_MODES[mode_name]
     payload = struct.pack("<H", 0x0000) + bytes([eq_idx])
     pkt = build_race_packet(AIROHA_PEQ_SET, payload)
@@ -353,10 +353,10 @@ def cmd_eq_set(sock: socket.socket, mode_name: str) -> dict:
 # --- Language (cmd 37 GET / cmd 5 SET) ---
 
 def cmd_lang_get(sock: socket.socket) -> dict:
-    """GET langue via cmd 37 (getLangRev).
+    """GET language via cmd 37 (getLangRev).
 
-    La reponse arrive en indication (0x5D) apres un ACK (0x5B).
-    Contient le byte langue et la version firmware voice guidance.
+    The response arrives as an indication (0x5D) after an ACK (0x5B).
+    Contains the language byte and voice guidance firmware version.
     """
     pkt = build_race_packet(37, bytes([0]))  # 0 = LEFT
     resp = send_recv(sock, pkt, expected_cmd=37, expected_type=0x5D)
@@ -365,7 +365,7 @@ def cmd_lang_get(sock: socket.socket) -> dict:
         raise RuntimeError(f"Lang GET: status={status}")
     # rest = [left_right, lang_byte, str_len, version_str...]
     lang_byte = rest[1] if len(rest) >= 2 else 0
-    lang = LANGUAGE_MAP_REV.get(lang_byte, f"inconnu({lang_byte})")
+    lang = LANGUAGE_MAP_REV.get(lang_byte, f"unknown({lang_byte})")
     result = {"lang": lang_byte, "label": lang}
     if len(rest) >= 3:
         str_len = rest[2]
@@ -375,9 +375,9 @@ def cmd_lang_get(sock: socket.socket) -> dict:
 
 
 def cmd_lang_set(sock: socket.socket, lang_name: str) -> dict:
-    """SET langue via cmd 5."""
+    """SET language via cmd 5."""
     if lang_name not in LANGUAGE_MAP:
-        raise ValueError(f"Langue invalide '{lang_name}'. Choix: {list(LANGUAGE_MAP.keys())}")
+        raise ValueError(f"Invalid language '{lang_name}'. Choices: {list(LANGUAGE_MAP.keys())}")
     raw = LANGUAGE_MAP[lang_name]
     status = race_set(sock, 5, bytes([raw]))
     check_status(status, "lang set")
@@ -393,7 +393,7 @@ def cmd_anc_get(sock: socket.socket) -> dict:
     amb_level = data[2] if len(data) > 2 else 0
     return {
         "mode": mode,
-        "mode_label": ANC_MODES_REV.get(mode, f"inconnu({mode})"),
+        "mode_label": ANC_MODES_REV.get(mode, f"unknown({mode})"),
         "nc_level": nc_level,
         "ambient_level": amb_level,
     }
@@ -401,7 +401,7 @@ def cmd_anc_get(sock: socket.socket) -> dict:
 
 def cmd_anc_set(sock: socket.socket, mode_name: str) -> dict:
     if mode_name not in ANC_MODES:
-        raise ValueError(f"Mode ANC invalide '{mode_name}'. Choix: {list(ANC_MODES.keys())}")
+        raise ValueError(f"Invalid ANC mode '{mode_name}'. Choices: {list(ANC_MODES.keys())}")
     current = cmd_anc_get(sock)
     mode = ANC_MODES[mode_name]
     payload = bytes([mode, current["nc_level"], current["ambient_level"]])
@@ -422,7 +422,7 @@ def cmd_anc_level_get(sock: socket.socket) -> dict:
 
 def cmd_anc_level_set(sock: socket.socket, level: int) -> dict:
     if level not in NC_ADJUST_DB:
-        raise ValueError(f"Niveau invalide {level}. Valeurs: 0 (default) ou 20-40")
+        raise ValueError(f"Invalid level {level}. Values: 0 (default) or 20-40")
     status = race_set(sock, 57, bytes([level]))
     check_status(status, "anc-level set")
     return cmd_anc_level_get(sock)
@@ -435,14 +435,14 @@ def cmd_spatial_get(sock: socket.socket) -> dict:
     mode = data[0] if len(data) > 0 else 0
     ht = data[1] if len(data) > 1 else 0
     return {
-        "mode": ONOFF_REV.get(mode, f"inconnu({mode})"),
-        "head_tracking": ONOFF_REV.get(ht, f"inconnu({ht})"),
+        "mode": ONOFF_REV.get(mode, f"unknown({mode})"),
+        "head_tracking": ONOFF_REV.get(ht, f"unknown({ht})"),
     }
 
 
 def cmd_spatial_set(sock: socket.socket, mode: str, head_tracking: str | None = None) -> dict:
     if mode not in ONOFF:
-        raise ValueError(f"Mode invalide '{mode}'. Choix: on, off")
+        raise ValueError(f"Invalid mode '{mode}'. Choices: on, off")
     current = cmd_spatial_get(sock)
     ht_val = ONOFF[head_tracking] if head_tracking else ONOFF[current["head_tracking"]]
     payload = bytes([ONOFF[mode], ht_val])
@@ -496,11 +496,11 @@ def cmd_auto_power_off_get(sock: socket.socket) -> dict:
 def cmd_auto_power_off_set(sock: socket.socket, mode: str,
                            minutes: int | None = None) -> dict:
     if mode not in ONOFF:
-        raise ValueError(f"Mode invalide '{mode}'. Choix: on, off")
+        raise ValueError(f"Invalid mode '{mode}'. Choices: on, off")
     current = cmd_auto_power_off_get(sock)
     mins = minutes if minutes is not None else current["minutes"]
     if mode == "on" and mins not in POWER_OFF_MINUTES:
-        raise ValueError(f"Minutes invalide {mins}. Choix: {sorted(POWER_OFF_MINUTES)}")
+        raise ValueError(f"Invalid minutes {mins}. Choices: {sorted(POWER_OFF_MINUTES)}")
     payload = bytes([ONOFF[mode], mins])
     status = race_set(sock, 7, payload)
     check_status(status, "auto-power-off set")
@@ -522,7 +522,7 @@ def cmd_ambient_mode_get(sock: socket.socket) -> dict:
 def cmd_ambient_mode_set(sock: socket.socket, ambient: str,
                          music: str | None = None) -> dict:
     if ambient not in AMBIENT_MODES:
-        raise ValueError(f"Mode invalide '{ambient}'. Choix: {list(AMBIENT_MODES.keys())}")
+        raise ValueError(f"Invalid mode '{ambient}'. Choices: {list(AMBIENT_MODES.keys())}")
     current = cmd_ambient_mode_get(sock)
     mus_val = MUSIC_MODES[music] if music else MUSIC_MODES[current["music_mode"]]
     payload = bytes([AMBIENT_MODES[ambient], mus_val])
@@ -545,7 +545,7 @@ def cmd_outside_toggle_set(sock: socket.socket, modes: list[str]) -> dict:
     for m in modes:
         m = m.strip().lower()
         if m not in TOGGLE_BITS:
-            raise ValueError(f"Mode toggle invalide '{m}'. Choix: {list(TOGGLE_BITS.keys())}")
+            raise ValueError(f"Invalid toggle mode '{m}'. Choices: {list(TOGGLE_BITS.keys())}")
         flags |= TOGGLE_BITS[m]
     status = race_set(sock, 22, bytes([flags]))
     check_status(status, "outside-toggle set")
@@ -558,7 +558,7 @@ def cmd_find_me(sock: socket.socket, blink: bool = False,
                 ring: bool = False, target: str = "both") -> dict:
     targets = {"agent": 0, "partner": 1, "both": 2}
     if target not in targets:
-        raise ValueError(f"Target invalide '{target}'. Choix: {list(targets.keys())}")
+        raise ValueError(f"Invalid target '{target}'. Choices: {list(targets.keys())}")
     payload = bytes([int(blink), int(ring), targets[target]])
     status = race_set(sock, 32, payload)
     check_status(status, "find-me")
@@ -568,9 +568,9 @@ def cmd_find_me(sock: socket.socket, blink: bool = False,
 # --- Battery ---
 
 def _get_peer_dst(sock: socket.socket) -> tuple[int, int] | None:
-    """Decouvre la destination du peer (partner) via cmd 3328 (GetAvaDst).
+    """Discover the peer (partner) destination via cmd 3328 (GetAvaDst).
 
-    Retourne (Type, Id) du peer AWS (Type=5) ou None si absent.
+    Returns (Type, Id) of the peer AWS (Type=5) or None if absent.
     """
     pkt = build_race_packet(3328)
     resp = send_recv(sock, pkt, expected_cmd=3328)
@@ -582,9 +582,9 @@ def _get_peer_dst(sock: socket.socket) -> tuple[int, int] | None:
 
 
 def _parse_tws_battery(resp: bytes) -> tuple[int, int]:
-    """Parse une reponse batterie TWS (cmd 3286, indication 0x5D).
+    """Parse a TWS battery response (cmd 3286, indication 0x5D).
 
-    Retourne (agent_or_client, battery_percent).
+    Returns (agent_or_client, battery_percent).
     Format: [head][type][len][cmd_id_le][status][agent_or_client][battery]
     """
     _, status, rest = parse_race_response(resp)
@@ -596,10 +596,10 @@ def _parse_tws_battery(resp: bytes) -> tuple[int, int]:
 
 
 def cmd_battery_get(sock: socket.socket) -> dict:
-    """Recupere toutes les infos batterie disponibles.
+    """Retrieve all available battery info.
 
-    - Agent: cmd 3286 avec payload {0} (indication 0x5D)
-    - Partner: relay cmd 3329 wrappant cmd 3286 via peer Dst
+    - Agent: cmd 3286 with payload {0} (indication 0x5D)
+    - Partner: relay cmd 3329 wrapping cmd 3286 via peer Dst
     - Cradle: cmd 64
     """
     results = {}
@@ -610,7 +610,7 @@ def cmd_battery_get(sock: socket.socket) -> dict:
             results["cradle"] = data[0]
     except (TimeoutError, RuntimeError):
         pass
-    # Agent battery (cmd 3286 avec payload {0})
+    # Agent battery (cmd 3286 with payload {0})
     try:
         pkt = build_race_packet(3286, bytes([0]))
         resp = send_recv(sock, pkt, expected_cmd=3286, expected_type=0x5D)
@@ -619,7 +619,7 @@ def cmd_battery_get(sock: socket.socket) -> dict:
             results["agent"] = level
     except (TimeoutError, RuntimeError, ValueError):
         pass
-    # Partner battery via relay (cmd 3329 wrappant cmd 3286)
+    # Partner battery via relay (cmd 3329 wrapping cmd 3286)
     try:
         peer = _get_peer_dst(sock)
         if peer:
@@ -627,8 +627,8 @@ def cmd_battery_get(sock: socket.socket) -> dict:
             relay_payload = bytes([peer[0], peer[1]]) + inner
             pkt = build_race_packet(3329, relay_payload)
             sock.send(pkt)
-            # Collecter les paquets jusqu'a trouver l'indication relay
-            # contenant l'indication interne (0x5D wrappant 0x5D)
+            # Collect packets until we find the relay indication
+            # containing the inner indication (0x5D wrapping 0x5D)
             sock.settimeout(5)
             buf = bytearray()
             start = time.time()
@@ -650,13 +650,13 @@ def cmd_battery_get(sock: socket.socket) -> dict:
                         break
                     p = bytes(buf[:pkt_len])
                     del buf[:pkt_len]
-                    # Chercher indication relay (0x5D pour cmd 3329)
-                    # contenant une indication interne (0x5D pour cmd 3286)
+                    # Look for relay indication (0x5D for cmd 3329)
+                    # containing an inner indication (0x5D for cmd 3286)
                     if p[1] == 0x5D and len(p) >= 8:
-                        inner_data = p[8:]  # apres header relay (6) + Dst (2)
+                        inner_data = p[8:]  # after relay header (6) + Dst (2)
                         if (len(inner_data) >= 9 and inner_data[0] == 0x05
                                 and inner_data[1] == 0x5D):
-                            # Inner indication pour cmd 3286
+                            # Inner indication for cmd 3286
                             inner_status = inner_data[6]
                             if inner_status == 0 and len(inner_data) >= 9:
                                 partner_level = inner_data[8]
@@ -674,27 +674,27 @@ def cmd_connected_devices_get(sock: socket.socket) -> dict:
     data = race_get(sock, 73)
     if not data:
         return {"devices": []}
-    # Le premier octet est le nombre d'appareils
+    # First byte is the device count
     count = data[0]
     devices = []
     offset = 1
     for _ in range(count):
         if offset >= len(data):
             break
-        # Chaque entree : longueur du nom + nom (format variable)
-        # Fallback : on extrait ce qu'on peut
+        # Each entry: name length + name (variable format)
+        # Fallback: extract what we can
         entry_len = data[offset]
         offset += 1
         if offset + entry_len <= len(data):
             raw = data[offset:offset + entry_len]
-            # Tente de decoder comme texte, sinon hex
+            # Try to decode as text, otherwise hex
             try:
                 devices.append(raw.decode("utf-8"))
             except UnicodeDecodeError:
                 devices.append(raw.hex())
             offset += entry_len
         else:
-            # Dump le reste en hex
+            # Dump the rest as hex
             devices.append(data[offset:].hex())
             break
     if not devices and len(data) > 1:
@@ -702,20 +702,20 @@ def cmd_connected_devices_get(sock: socket.socket) -> dict:
     return {"count": count, "devices": devices}
 
 
-# --- Firmware Info (cmd systeme 769/7688) ---
+# --- Firmware Info (cmd system 769/7688) ---
 
 def cmd_firmware_info_get(sock: socket.socket) -> dict:
     result = {}
-    # SDK Version (769 = 0x0301) - commande systeme sans status byte
+    # SDK Version (769 = 0x0301) - system command without status byte
     try:
         resp = send_recv(sock, build_race_packet(769))
-        payload = resp[6:]  # payload complet = version string
+        payload = resp[6:]  # full payload = version string
         if payload:
             result["sdk_version"] = payload.decode("utf-8", errors="replace").rstrip("\x00")
     except Exception:
         pass
 
-    # Build Version Info (7688 = 0x1E08) - commande systeme avec status byte
+    # Build Version Info (7688 = 0x1E08) - system command with status byte
     try:
         resp = send_recv(sock, build_race_packet(7688))
         _, status, data = parse_race_response(resp)
@@ -746,10 +746,10 @@ def cmd_cradle_battery_get(sock: socket.socket) -> dict:
 def cmd_codec_get(sock: socket.socket) -> dict:
     data = race_get(sock, 18)
     if len(data) < 7:
-        return {"codec": "inconnu", "raw": data.hex()}
-    codec = CODEC_TYPES.get(data[0], f"inconnu({data[0]})")
-    sf = SAMPLE_FREQS.get(data[1], f"inconnu({data[1]})")
-    cm = CHANNEL_MODES.get(data[2], f"inconnu({data[2]})")
+        return {"codec": "unknown", "raw": data.hex()}
+    codec = CODEC_TYPES.get(data[0], f"unknown({data[0]})")
+    sf = SAMPLE_FREQS.get(data[1], f"unknown({data[1]})")
+    cm = CHANNEL_MODES.get(data[2], f"unknown({data[2]})")
     bitrate = int.from_bytes(data[3:6], "little")
     vbr = "VBR" if len(data) > 7 and data[7] == 1 else "CBR"
     return {
@@ -763,7 +763,7 @@ def cmd_codec_get(sock: socket.socket) -> dict:
 def cmd_color_get(sock: socket.socket) -> dict:
     data = race_get(sock, 2)
     raw = data[0] if data else 0
-    return {"color": COLOR_MAP.get(raw, f"inconnu({raw})"), "raw": raw}
+    return {"color": COLOR_MAP.get(raw, f"unknown({raw})"), "raw": raw}
 
 
 # --- JMV Start (cmd 47) ---
@@ -788,7 +788,7 @@ def cmd_power_off(sock: socket.socket) -> dict:
 
 def cmd_vp_outside_set(sock: socket.socket, mode: str) -> dict:
     if mode not in VP_OUTSIDE_MODES:
-        raise ValueError(f"Mode invalide '{mode}'. Choix: {list(VP_OUTSIDE_MODES.keys())}")
+        raise ValueError(f"Invalid mode '{mode}'. Choices: {list(VP_OUTSIDE_MODES.keys())}")
     status = race_set(sock, 69, bytes([VP_OUTSIDE_MODES[mode]]))
     check_status(status, "vp-outside set")
     return {"vp_outside": mode}
@@ -798,7 +798,7 @@ def cmd_vp_outside_set(sock: socket.socket, mode: str) -> dict:
 
 def cmd_vp_connected_set(sock: socket.socket, value: int) -> dict:
     if value not in VP_CONNECTED_MODES:
-        raise ValueError(f"Valeur invalide {value}. Choix: 0-7")
+        raise ValueError(f"Invalid value {value}. Choices: 0-7")
     status = race_set(sock, 70, bytes([value]))
     check_status(status, "vp-connected set")
     return {"vp_connected": VP_CONNECTED_MODES[value]}
@@ -816,7 +816,7 @@ def cmd_vp_volume_set(sock: socket.socket, volume: int) -> dict:
 
 STATUS_CMD_IDS = [
     10,   # ANC
-    # EQ utilise Airoha PEQ (0x0901), pas le batch Panasonic cmd 12
+    # EQ uses Airoha PEQ (0x0901), not the Panasonic batch cmd 12
     19,   # LED
     50,   # Multipoint
     99,   # Spatial
@@ -833,14 +833,14 @@ STATUS_CMD_IDS = [
     89,   # LE Audio
     92,   # Safe Volume
     8,    # Assistant
-    # Language utilise cmd 37 (getLangRev), pas le batch cmd 4
+    # Language uses cmd 37 (getLangRev), not the batch cmd 4
     46,   # JMV
     64,   # Cradle Battery
 ]
 
 
 def cmd_status_batch(sock: socket.socket) -> dict:
-    """Recupere tous les parametres via la commande batch 240."""
+    """Retrieve all parameters via batch command 240."""
     count = len(STATUS_CMD_IDS)
     payload = bytes([count])
     for cid in STATUS_CMD_IDS:
@@ -867,7 +867,7 @@ def cmd_status_batch(sock: socket.socket) -> dict:
         offset += 3
         chunk = data[offset:offset + dlen]
         offset += dlen
-        # Chaque commande dans le batch inclut un status byte en tete
+        # Each command in the batch includes a status byte at the start
         if chunk:
             result[cid] = chunk[1:]
         else:
@@ -877,7 +877,7 @@ def cmd_status_batch(sock: socket.socket) -> dict:
 
 
 def _parse_batch_result(raw: dict[int, bytes]) -> dict:
-    """Transforme les chunks bruts du batch en dictionnaire lisible."""
+    """Transform raw batch chunks into a readable dictionary."""
     out = {}
 
     # ANC (10)
@@ -978,7 +978,7 @@ def _parse_batch_result(raw: dict[int, bytes]) -> dict:
     if 8 in raw and raw[8]:
         out["assistant"] = {"mode": ASSISTANT_MODES_REV.get(raw[8][0], str(raw[8][0]))}
 
-    # Language: utilise cmd 37 (getLangRev), pas dans le batch
+    # Language: uses cmd 37 (getLangRev), not in batch
 
     # JMV (46)
     if 46 in raw and raw[46]:
@@ -991,7 +991,7 @@ def _parse_batch_result(raw: dict[int, bytes]) -> dict:
     return out
 
 # ---------------------------------------------------------------------------
-#  Affichage
+#  Display
 # ---------------------------------------------------------------------------
 
 def print_result(data: dict, raw_json: bool = False):
@@ -1019,173 +1019,173 @@ def _print_dict(d: dict, indent: int = 0):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="technics.py",
-        description="Technics EAH-AZ100 - Controle complet via Bluetooth RFCOMM",
+        description="Technics EAH-AZ100 - Full control via Bluetooth RFCOMM",
     )
-    p.add_argument("-a", "--address", default=None, help="Adresse MAC Bluetooth (auto-detect si absent)")
-    p.add_argument("-c", "--channel", type=int, default=RFCOMM_CHANNEL, help="Canal RFCOMM")
-    p.add_argument("--raw", action="store_true", help="Sortie JSON pour scripting")
+    p.add_argument("-a", "--address", default=None, help="Bluetooth MAC address (auto-detect if omitted)")
+    p.add_argument("-c", "--channel", type=int, default=RFCOMM_CHANNEL, help="RFCOMM channel")
+    p.add_argument("--raw", action="store_true", help="JSON output for scripting")
 
-    sub = p.add_subparsers(dest="command", help="Commande a executer")
+    sub = p.add_subparsers(dest="command", help="Command to execute")
 
     # --- Status ---
-    sub.add_parser("status", help="Tous les parametres (batch)")
+    sub.add_parser("status", help="All parameters (batch)")
 
     # --- Battery ---
-    sub.add_parser("battery", help="Batterie ecouteurs + boitier")
+    sub.add_parser("battery", help="Earbuds + case battery")
 
     # --- Codec ---
-    sub.add_parser("codec", help="Info codec actuel")
+    sub.add_parser("codec", help="Current codec info")
 
     # --- Color ---
-    sub.add_parser("color", help="Couleur appareil")
+    sub.add_parser("color", help="Device color")
 
     # --- ANC ---
     sp = sub.add_parser("anc", help="Noise Canceling")
     sp.add_argument("mode", nargs="?", choices=["nc", "off", "ambient"],
-                    help="Mode ANC (vide = lecture)")
+                    help="ANC mode (empty = read)")
 
     # --- ANC Level ---
-    sp = sub.add_parser("anc-level", help="Ajustement NC fin")
+    sp = sub.add_parser("anc-level", help="Fine NC adjustment")
     sp.add_argument("level", nargs="?", type=int,
-                    help="Niveau (0=default, 20-40)")
+                    help="Level (0=default, 20-40)")
 
     # --- Adaptive ANC ---
-    sp = sub.add_parser("adaptive-anc", help="ANC adaptatif")
+    sp = sub.add_parser("adaptive-anc", help="Adaptive ANC")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="on/off (vide = lecture)")
+                    help="on/off (empty = read)")
 
     # --- Ambient Mode ---
-    sp = sub.add_parser("ambient-mode", help="Mode ambiant")
+    sp = sub.add_parser("ambient-mode", help="Ambient mode")
     sp.add_argument("mode", nargs="?", choices=["transparent", "attention"],
-                    help="Mode (vide = lecture)")
-    sp.add_argument("--music", choices=["play", "stop"], help="Controle musique")
+                    help="Mode (empty = read)")
+    sp.add_argument("--music", choices=["play", "stop"], help="Music control")
 
     # --- Outside Toggle ---
-    sp = sub.add_parser("outside-toggle", help="Config bouton physique")
+    sp = sub.add_parser("outside-toggle", help="Physical button config")
     sp.add_argument("modes", nargs="?",
-                    help="Modes separes par des virgules: off,nc,ambient (vide = lecture)")
+                    help="Comma-separated modes: off,nc,ambient (empty = read)")
 
     # --- EQ ---
-    sp = sub.add_parser("eq", help="Egaliseur")
+    sp = sub.add_parser("eq", help="Equalizer")
     sp.add_argument("mode", nargs="?",
                     choices=list(EQ_MODES.keys()),
-                    help="Preset EQ (vide = lecture)")
+                    help="EQ preset (empty = read)")
 
     # --- Spatial ---
-    sp = sub.add_parser("spatial", help="Audio spatial")
+    sp = sub.add_parser("spatial", help="Spatial audio")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="on/off (vide = lecture)")
+                    help="on/off (empty = read)")
     sp.add_argument("--head-tracking", choices=["on", "off"],
-                    help="Suivi de tete")
+                    help="Head tracking")
 
     # --- Multipoint ---
-    sp = sub.add_parser("multipoint", help="Multipoint Bluetooth")
+    sp = sub.add_parser("multipoint", help="Bluetooth multipoint")
     sp.add_argument("mode", nargs="?", choices=["off", "on", "triple"],
-                    help="Mode (vide = lecture)")
+                    help="Mode (empty = read)")
 
     # --- Switch Playing ---
-    sp = sub.add_parser("switch-playing", help="Bascule pendant la lecture")
+    sp = sub.add_parser("switch-playing", help="Switch during playback")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="on/off (vide = lecture)")
+                    help="on/off (empty = read)")
 
     # --- Ringtone Talking ---
-    sp = sub.add_parser("ringtone-talking", help="Sonnerie pendant appel")
+    sp = sub.add_parser("ringtone-talking", help="Ringtone during call")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="on/off (vide = lecture)")
+                    help="on/off (empty = read)")
 
     # --- Auto Power Off ---
-    sp = sub.add_parser("auto-power-off", help="Arret automatique")
+    sp = sub.add_parser("auto-power-off", help="Auto power off")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="on/off (vide = lecture)")
+                    help="on/off (empty = read)")
     sp.add_argument("--minutes", type=int, choices=[5, 10, 30, 60],
-                    help="Duree en minutes")
+                    help="Duration in minutes")
 
     # --- LED ---
-    sp = sub.add_parser("led", help="LED clignotante")
+    sp = sub.add_parser("led", help="Blinking LED")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="on/off (vide = lecture)")
+                    help="on/off (empty = read)")
 
     # --- Wearing ---
-    sp = sub.add_parser("wearing", help="Detection de port")
+    sp = sub.add_parser("wearing", help="Wearing detection")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="Detection on/off (vide = lecture)")
-    sp.add_argument("--music", choices=["on", "off"], help="Controle musique")
-    sp.add_argument("--touch", choices=["on", "off"], help="Controle tactile")
-    sp.add_argument("--replay", choices=["on", "off"], help="Reprise lecture")
+                    help="Detection on/off (empty = read)")
+    sp.add_argument("--music", choices=["on", "off"], help="Music control")
+    sp.add_argument("--touch", choices=["on", "off"], help="Touch control")
+    sp.add_argument("--replay", choices=["on", "off"], help="Playback resume")
 
     # --- Assistant ---
-    sp = sub.add_parser("assistant", help="Assistant vocal")
+    sp = sub.add_parser("assistant", help="Voice assistant")
     sp.add_argument("mode", nargs="?", choices=["google", "alexa", "off"],
-                    help="Assistant (vide = lecture)")
+                    help="Assistant (empty = read)")
 
     # --- LE Audio ---
     sp = sub.add_parser("le-audio", help="LE Audio")
     sp.add_argument("mode", nargs="?", choices=["on", "off"],
-                    help="on/off (vide = lecture)")
+                    help="on/off (empty = read)")
 
     # --- Noise Reduction ---
-    sp = sub.add_parser("noise-reduction", help="Reduction bruit appel")
+    sp = sub.add_parser("noise-reduction", help="Call noise reduction")
     sp.add_argument("mode", nargs="?", choices=["normal", "high"],
-                    help="Mode (vide = lecture)")
+                    help="Mode (empty = read)")
 
     # --- Buffer ---
-    sp = sub.add_parser("buffer", help="Buffer audio/video")
+    sp = sub.add_parser("buffer", help="Audio/video buffer")
     sp.add_argument("mode", nargs="?", choices=["auto", "music", "video"],
-                    help="Mode (vide = lecture)")
+                    help="Mode (empty = read)")
 
     # --- Safe Volume ---
-    sp = sub.add_parser("safe-volume", help="Volume max securise")
+    sp = sub.add_parser("safe-volume", help="Safe max volume")
     sp.add_argument("value", nargs="?", type=int,
-                    help="Valeur (vide = lecture)")
+                    help="Value (empty = read)")
 
     # --- Language ---
-    sp = sub.add_parser("language", help="Langue des annonces")
+    sp = sub.add_parser("language", help="Announcement language")
     sp.add_argument("lang", nargs="?", choices=list(LANGUAGE_MAP.keys()),
-                    help="Langue (vide = lecture)")
+                    help="Language (empty = read)")
 
     # --- VP Outside ---
-    sp = sub.add_parser("vp-outside", help="Annonce changement ANC")
+    sp = sub.add_parser("vp-outside", help="ANC change announcement")
     sp.add_argument("mode", choices=["tone", "voice"],
-                    help="Type d'annonce")
+                    help="Announcement type")
 
     # --- VP Connected ---
-    sp = sub.add_parser("vp-connected", help="Annonce de connexion")
+    sp = sub.add_parser("vp-connected", help="Connection announcement")
     sp.add_argument("value", type=int, choices=range(8),
-                    help="Type d'annonce (0-7)")
+                    help="Announcement type (0-7)")
 
     # --- VP Volume ---
-    sp = sub.add_parser("vp-volume", help="Volume des annonces vocales")
+    sp = sub.add_parser("vp-volume", help="Voice prompt volume")
     sp.add_argument("volume", type=int, help="Volume")
 
     # --- JMV ---
     sp = sub.add_parser("jmv", help="Just My Voice")
     sp.add_argument("mode", nargs="?", choices=["on", "off", "start"],
-                    help="Mode ou demarrage (vide = lecture)")
+                    help="Mode or start (empty = read)")
 
     # --- Find Me ---
-    sp = sub.add_parser("find-me", help="Localiser les ecouteurs")
-    sp.add_argument("--blink", action="store_true", help="Activer le clignotement")
-    sp.add_argument("--ring", action="store_true", help="Activer la sonnerie")
+    sp = sub.add_parser("find-me", help="Locate earbuds")
+    sp.add_argument("--blink", action="store_true", help="Enable blinking")
+    sp.add_argument("--ring", action="store_true", help="Enable ringing")
     sp.add_argument("--target", choices=["agent", "partner", "both"],
-                    default="both", help="Cible")
+                    default="both", help="Target")
 
     # --- A2DP (codec preference) ---
-    sp = sub.add_parser("a2dp", help="Preference codec Bluetooth")
+    sp = sub.add_parser("a2dp", help="Bluetooth codec preference")
     sp.add_argument("codec", nargs="?",
                     choices=list(A2DP_CODECS.keys()),
-                    help="Codec prefere (vide = lecture)")
+                    help="Preferred codec (empty = read)")
 
-    # --- TWS Battery (alias de battery) ---
-    sub.add_parser("tws-battery", help="Batterie TWS (alias de battery)")
+    # --- TWS Battery (alias for battery) ---
+    sub.add_parser("tws-battery", help="TWS battery (alias for battery)")
 
     # --- Connected Devices ---
-    sub.add_parser("connected-devices", help="Appareils connectes")
+    sub.add_parser("connected-devices", help="Connected devices")
 
     # --- Firmware Info ---
-    sub.add_parser("firmware-info", help="Infos firmware (SDK + build)")
+    sub.add_parser("firmware-info", help="Firmware info (SDK + build)")
 
     # --- Power Off ---
-    sub.add_parser("power-off", help="Eteindre les ecouteurs")
+    sub.add_parser("power-off", help="Power off earbuds")
 
     return p
 
@@ -1200,7 +1200,7 @@ def dispatch(sock: socket.socket, args: argparse.Namespace) -> dict:
     if cmd == "status":
         return cmd_status_batch(sock)
 
-    # --- Lecture seule ---
+    # --- Read only ---
     if cmd == "battery":
         return cmd_battery_get(sock)
     if cmd == "tws-battery":
@@ -1294,10 +1294,10 @@ def dispatch(sock: socket.socket, args: argparse.Namespace) -> dict:
             return generic_set(sock, jmv_cmd, args.mode)
         return generic_get(sock, jmv_cmd)
 
-    # --- Commandes generiques ---
+    # --- Generic commands ---
     if cmd in GENERIC_CMDS:
         gcmd = GENERIC_CMDS[cmd]
-        # Cherche la valeur dans les attributs argparse possibles
+        # Look for the value in possible argparse attributes
         val = None
         for attr in ("mode", "lang", "value", "codec"):
             val = getattr(args, attr, None)
@@ -1307,7 +1307,7 @@ def dispatch(sock: socket.socket, args: argparse.Namespace) -> dict:
             return generic_set(sock, gcmd, val)
         return generic_get(sock, gcmd)
 
-    raise ValueError(f"Commande inconnue: {cmd}")
+    raise ValueError(f"Unknown command: {cmd}")
 
 # ---------------------------------------------------------------------------
 #  Main
@@ -1323,20 +1323,20 @@ def main():
 
     address = args.address
     if not address:
-        print("  Recherche des ecouteurs Technics...", file=sys.stderr)
+        print("  Searching for Technics earbuds...", file=sys.stderr)
         address = discover_device()
         if not address:
-            print("  Aucun ecouteur Technics detecte parmi les appareils appairies.", file=sys.stderr)
-            print("  Utilise -a MAC pour specifier l'adresse manuellement.", file=sys.stderr)
+            print("  No Technics earbuds found among paired devices.", file=sys.stderr)
+            print("  Use -a MAC to specify the address manually.", file=sys.stderr)
             sys.exit(1)
-        print(f"  Ecouteurs trouves: {address}", file=sys.stderr)
+        print(f"  Earbuds found: {address}", file=sys.stderr)
 
-    print(f"  Connexion a {address} canal {args.channel}...", file=sys.stderr)
+    print(f"  Connecting to {address} channel {args.channel}...", file=sys.stderr)
     try:
         sock = bt_connect(address, args.channel)
     except Exception as e:
-        print(f"  Erreur de connexion: {e}", file=sys.stderr)
-        print("  Verifie que les ecouteurs sont connectes en Bluetooth.", file=sys.stderr)
+        print(f"  Connection error: {e}", file=sys.stderr)
+        print("  Make sure the earbuds are connected via Bluetooth.", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -1346,7 +1346,7 @@ def main():
         if args.raw:
             print(json.dumps({"error": str(e)}, ensure_ascii=False))
         else:
-            print(f"  Erreur: {e}", file=sys.stderr)
+            print(f"  Error: {e}", file=sys.stderr)
         sys.exit(1)
     finally:
         sock.close()
