@@ -1508,11 +1508,23 @@ class App(ctk.CTk):
             self.bt.disconnect()
             self._on_disconnected()
         else:
-            self._conn_btn.configure(state="disabled", text="Connexion...")
-            self.set_status("Connexion en cours...")
-            self.bt.connect(
-                tc.MAC_ADDRESS, tc.RFCOMM_CHANNEL,
-                callback=lambda ok, err: self.after(0, lambda: self._on_connect_result(ok, err)))
+            self._conn_btn.configure(state="disabled", text="Recherche...")
+            self.set_status("Recherche des ecouteurs Technics...")
+
+            def _discover_and_connect():
+                address = tc.discover_device()
+                if not address:
+                    self.after(0, lambda: self._on_connect_result(
+                        False, Exception("Aucun ecouteur Technics detecte")))
+                    return
+                self.after(0, lambda: self.set_status(f"Connexion a {address}..."))
+                self.after(0, lambda: self._conn_btn.configure(text="Connexion..."))
+                self.bt.connect(
+                    address, tc.RFCOMM_CHANNEL,
+                    callback=lambda ok, err: self.after(0, lambda: self._on_connect_result(ok, err)))
+
+            import threading
+            threading.Thread(target=_discover_and_connect, daemon=True).start()
 
     def _on_connect_result(self, ok: bool, error):
         self._conn_btn.configure(state="normal")

@@ -15,13 +15,54 @@ import socket
 import struct
 import sys
 import time
+import winreg
 
 # ---------------------------------------------------------------------------
 #  Constantes
 # ---------------------------------------------------------------------------
 
-MAC_ADDRESS = "<your-device-mac>"
 RFCOMM_CHANNEL = 21
+DEVICE_NAME_PREFIX = "EAH-AZ"
+
+
+# ---------------------------------------------------------------------------
+#  Bluetooth device discovery (Windows registry)
+# ---------------------------------------------------------------------------
+
+def discover_device() -> str | None:
+    """Find a paired Technics device by scanning the Windows BT registry.
+
+    Looks for paired Bluetooth devices whose name starts with DEVICE_NAME_PREFIX
+    (e.g. 'EAH-AZ100'). Returns the MAC address as 'XX:XX:XX:XX:XX:XX' or None.
+    """
+    bt_key = r"SYSTEM\CurrentControlSet\Services\BTHPORT\Parameters\Devices"
+    try:
+        root = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, bt_key)
+    except OSError:
+        return None
+    i = 0
+    while True:
+        try:
+            subkey_name = winreg.EnumKey(root, i)
+            i += 1
+        except OSError:
+            break
+        try:
+            dev = winreg.OpenKey(root, subkey_name)
+            name_bytes, _ = winreg.QueryValueEx(dev, "Name")
+            winreg.CloseKey(dev)
+            if isinstance(name_bytes, bytes):
+                name = name_bytes.split(b"\x00", 1)[0].decode("utf-8", errors="replace")
+            else:
+                name = str(name_bytes)
+            if name.startswith(DEVICE_NAME_PREFIX):
+                mac = ":".join(subkey_name[j:j+2] for j in range(0, 12, 2))
+                winreg.CloseKey(root)
+                return mac
+        except OSError:
+            continue
+    winreg.CloseKey(root)
+    return None
 
 # ---------------------------------------------------------------------------
 #  Tables de mapping  nom <-> valeur
@@ -169,7 +210,7 @@ def parse_race_response(data: bytes) -> tuple[int, int, bytes]:
     return cmd_id, status, rest
 
 
-def bt_connect(address: str = MAC_ADDRESS, channel: int = RFCOMM_CHANNEL) -> socket.socket:
+def bt_connect(address: str, channel: int = RFCOMM_CHANNEL) -> socket.socket:
     """Ouvre une connexion RFCOMM vers les ecouteurs."""
     sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
     sock.settimeout(5)
@@ -980,7 +1021,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="technics.py",
         description="Technics EAH-AZ100 - Controle complet via Bluetooth RFCOMM",
     )
-    p.add_argument("-a", "--address", default=MAC_ADDRESS, help="Adresse MAC Bluetooth")
+    p.add_argument("-a", "--address", default=None, help="Adresse MAC Bluetooth (auto-detect si absent)")
     p.add_argument("-c", "--channel", type=int, default=RFCOMM_CHANNEL, help="Canal RFCOMM")
     p.add_argument("--raw", action="store_true", help="Sortie JSON pour scripting")
 
@@ -1280,9 +1321,19 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    print(f"  Connexion a {args.address} canal {args.channel}...", file=sys.stderr)
+    address = args.address
+    if not address:
+        print("  Recherche des ecouteurs Technics...", file=sys.stderr)
+        address = discover_device()
+        if not address:
+            print("  Aucun ecouteur Technics detecte parmi les appareils appairies.", file=sys.stderr)
+            print("  Utilise -a MAC pour specifier l'adresse manuellement.", file=sys.stderr)
+            sys.exit(1)
+        print(f"  Ecouteurs trouves: {address}", file=sys.stderr)
+
+    print(f"  Connexion a {address} canal {args.channel}...", file=sys.stderr)
     try:
-        sock = bt_connect(args.address, args.channel)
+        sock = bt_connect(address, args.channel)
     except Exception as e:
         print(f"  Erreur de connexion: {e}", file=sys.stderr)
         print("  Verifie que les ecouteurs sont connectes en Bluetooth.", file=sys.stderr)

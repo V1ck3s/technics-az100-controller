@@ -27,6 +27,8 @@ No external dependencies for the CLI. The GUI requires `customtkinter>=5.2` (aut
 
 ### CLI
 
+The device MAC address is auto-detected from paired Bluetooth devices. Use `-a MAC` to specify manually.
+
 ```bash
 # Read all settings at once
 uv run technics.py status
